@@ -16,13 +16,14 @@ PHP = "CVE-2026-115560"
 PHP_FPM = "CVE-2026-129292"
 PHP_CGI = "CVE-2026-129538"
 PHP_OOM = "CVE-2026-109618"
+PHP_STALE = "CVE-2026-109619"
 NODE = "CVE-2026-123865"
 
 
 def inventory(advisory, version, **changes):
     inv = {"asset": "portal-a", "build": "release-7", "ref": "serving-inventory-12",
            "origin": "upstream", "version": version, "serving_process_verified": True,
-           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM) else "node"}
+           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM, PHP_STALE) else "node"}
     return {"advisory": advisory, "inventory": {**inv, **changes}}
 
 
@@ -31,8 +32,8 @@ def config(**conditions):
 
 
 class RuntimePatchTests(unittest.TestCase):
-    def php_oom_cli(self, version, configuration=None, **changes):
-        request = inventory(PHP_OOM, version, **changes)
+    def php_cli(self, advisory, version, configuration=None, **changes):
+        request = inventory(advisory, version, **changes)
         if configuration is not None:
             request["applicability"] = configuration
         run = subprocess.run([sys.executable, "-ISB", str(CHECKER)], input=json.dumps(request),
@@ -40,32 +41,37 @@ class RuntimePatchTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         return json.loads(run.stdout)
 
-    def test_php_oom_branch_fixes_through_cli(self):
-        # The advisory lists the applicable cutoff separately for each PHP minor.
+    def test_php_october_branch_fixes_through_cli(self):
+        # Both October bulletins list the same four branch cutoffs.
         for below, fixed, above in (
             ("8.2.34", "8.2.35", "8.2.36"), ("8.3.35", "8.3.36", "8.3.37"),
             ("8.4.26", "8.4.27", "8.4.28"), ("8.5.11", "8.5.12", "8.5.13"),
         ):
             for version, status in ((below, "affected_version"), (fixed, "vendor_fix_present"),
                                     (above, "vendor_fix_present")):
-                with self.subTest(version=version):
-                    row = self.php_oom_cli(version)
-                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
-                    self.assertEqual(row["applicability"], "unknown")
+                for advisory in (PHP_OOM, PHP_STALE):
+                    with self.subTest(advisory=advisory, version=version):
+                        row = self.php_cli(advisory, version)
+                        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
+                        self.assertEqual(row["applicability"], "unknown")
         for version, fixed in (("8.3.0", "8.3.36"), ("8.5.0", "8.5.12")):
-            with self.subTest(version=version):
-                row = self.php_oom_cli(version)
-                self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", fixed))
+            for advisory in (PHP_OOM, PHP_STALE):
+                with self.subTest(advisory=advisory, version=version):
+                    row = self.php_cli(advisory, version)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", fixed))
 
-    def test_php_oom_distinguishes_runtime_and_web_role_evidence(self):
+    def test_php_october_requires_a_serving_upstream_release(self):
         for version, changes in (
             ("8.1.99", {}), ("8.6.0", {}), ("8.4.27RC1", {}),
             ("8.3.6", {"origin": "distribution"}), ("8.3.36", {"origin": "custom"}),
             ("8.3.36", {"serving_process_verified": False}), ("8.3.36", {"runtime": "node"}),
         ):
-            with self.subTest(version=version, changes=changes):
-                row = self.php_oom_cli(version, **changes)
-                self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("unknown", None))
+            for advisory in (PHP_OOM, PHP_STALE):
+                with self.subTest(advisory=advisory, version=version, changes=changes):
+                    row = self.php_cli(advisory, version, **changes)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("unknown", None))
+
+    def test_php_oom_web_role(self):
         for evidence, outcome, ref in (
             (config(php_serves_web_requests=True), "conditions_present", "config-review-7"),
             (config(php_serves_web_requests=False), "conditions_absent", "config-review-7"),
@@ -73,9 +79,27 @@ class RuntimePatchTests(unittest.TestCase):
             ({**config(php_serves_web_requests=True), "build": "different"}, "unknown", None),
         ):
             with self.subTest(evidence=evidence):
-                row = self.php_oom_cli("8.4.26", evidence)
+                row = self.php_cli(PHP_OOM, "8.4.26", evidence)
                 self.assertEqual(row["patch_status"], "affected_version")
                 self.assertEqual((row["applicability"], row["evidence_refs"]["configuration"]), (outcome, ref))
+
+    def test_php_stale_state_needs_same_worker_across_web_requests(self):
+        reused = config(php_serves_web_requests=True, worker_reused_across_requests=True)
+        for evidence, outcome in (
+            (reused, "conditions_present"),
+            (config(php_serves_web_requests=True), "unknown"),
+            (config(worker_reused_across_requests=True), "unknown"),
+            (config(php_serves_web_requests=True, worker_reused_across_requests=False), "conditions_absent"),
+            (config(php_serves_web_requests=False), "conditions_absent"),
+            ({**reused, "build": "different"}, "unknown"),
+        ):
+            with self.subTest(evidence=evidence):
+                row = self.php_cli(PHP_STALE, "8.5.11", evidence)
+                self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", outcome))
+        row = self.php_cli(PHP_STALE, "8.5.12", reused)
+        self.assertEqual((row["patch_status"], row["applicability"]), ("vendor_fix_present", "conditions_present"))
+        row = self.php_cli(PHP_STALE, "8.5.12", reused, serving_process_verified=False)
+        self.assertEqual((row["patch_status"], row["applicability"]), ("unknown", "unknown"))
 
     def test_each_documented_upstream_boundary(self):
         php_boundaries = ["8.2.36", "8.3.37", "8.4.28", "8.5.13"]
