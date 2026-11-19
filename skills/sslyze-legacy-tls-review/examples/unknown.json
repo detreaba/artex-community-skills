@@ -1,0 +1,161 @@
+{
+  "invalid_server_strings": [],
+  "server_scan_results": [
+    {
+      "uuid": "00000000-0000-4000-8000-000000000001",
+      "server_location": {
+        "hostname": "site.example",
+        "port": 443,
+        "connection_type": "DIRECT",
+        "ip_address": "192.0.2.25",
+        "http_proxy_settings": null
+      },
+      "network_configuration": {
+        "tls_server_name_indication": "site.example",
+        "tls_opportunistic_encryption": null,
+        "tls_client_auth_credentials": null,
+        "xmpp_to_hostname": null,
+        "network_timeout": 5,
+        "network_max_retries": 0
+      },
+      "connectivity_status": "COMPLETED",
+      "connectivity_error_trace": null,
+      "connectivity_result": {
+        "highest_tls_version_supported": "TLS_1_3",
+        "cipher_suite_supported": "TLS_AES_128_GCM_SHA256",
+        "client_auth_requirement": "DISABLED",
+        "supports_ecdh_key_exchange": true
+      },
+      "scan_status": "COMPLETED",
+      "scan_result": {
+        "certificate_info": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "ssl_2_0_cipher_suites": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "ssl_3_0_cipher_suites": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_1_0_cipher_suites": {
+          "status": "COMPLETED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": {
+            "tls_version_used": "TLS_1_0",
+            "is_tls_version_supported": false,
+            "accepted_cipher_suites": [],
+            "rejected_cipher_suites": [
+              {
+                "cipher_suite": {
+                  "name": "TLS_RSA_WITH_AES_128_CBC_SHA",
+                  "is_anonymous": false,
+                  "key_size": 128,
+                  "openssl_name": "AES128-SHA"
+                },
+                "error_message": "TLS handshake with server timed out"
+              }
+            ]
+          }
+        },
+        "tls_1_1_cipher_suites": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_1_2_cipher_suites": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_1_3_cipher_suites": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_compression": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_1_3_early_data": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "openssl_ccs_injection": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_fallback_scsv": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "heartbleed": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "robot": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "session_renegotiation": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "session_resumption": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "elliptic_curves": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "http_headers": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        },
+        "tls_extended_master_secret": {
+          "status": "NOT_SCHEDULED",
+          "error_reason": null,
+          "error_trace": null,
+          "result": null
+        }
+      }
+    }
+  ],
+  "date_scans_started": "2026-11-18T12:00:00Z",
+  "date_scans_completed": "2026-11-18T12:02:00Z",
+  "sslyze_version": "6.3.1",
+  "sslyze_url": "https://github.com/nabla-c0d3/sslyze"
+}

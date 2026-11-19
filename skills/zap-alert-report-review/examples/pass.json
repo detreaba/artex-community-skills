@@ -1,0 +1,51 @@
+{
+  "policy": {
+    "asset": "training-checkout",
+    "build": "release-27",
+    "ref": "team-triage-3",
+    "origin": "https://training.example.invalid",
+    "min_risk": "medium",
+    "min_confidence": "medium"
+  },
+  "evidence": {
+    "asset": "training-checkout",
+    "build": "release-27",
+    "ref": "saved-zap-27",
+    "run_status": "completed",
+    "export_scope": "all_recorded_alerts",
+    "document": {
+      "@programName": "ZAP",
+      "@version": "2.16.1",
+      "@generated": "Thu, 19 Nov 2026 09:00:00",
+      "created": "2026-11-19T09:00:00Z",
+      "site": [
+        {
+          "@name": "https://training.example.invalid",
+          "@host": "training.example.invalid",
+          "@port": "443",
+          "@ssl": "true",
+          "alerts": [
+            {
+              "pluginid": "900001",
+              "alertRef": "900001-1",
+              "alert": "Synthetic quality observation",
+              "riskcode": "1",
+              "confidence": "3",
+              "instances": [
+                {
+                  "id": "1",
+                  "uri": "https://training.example.invalid/example",
+                  "method": "GET",
+                  "param": "",
+                  "attack": "",
+                  "evidence": ""
+                }
+              ],
+              "count": "1"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

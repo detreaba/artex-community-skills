@@ -54,6 +54,19 @@ for skill in skills/*; do
 done
 ```
 
+## Interpret saved security reports and configuration
+
+| Skill | What it checks | Evidence |
+| --- | --- | --- |
+| [SSLyze legacy TLS review](skills/sslyze-legacy-tls-review/SKILL.md) | Whether an endpoint accepted TLS 1.0 or 1.1 | A saved SSLyze JSON report, including per-protocol completion and cipher results. |
+| [Bandit report review](skills/bandit-report-review/SKILL.md) | Python findings and coverage of the files expected in CI | A saved Bandit JSON report and the CI scope. Suppressions, filtered output or processing errors can leave coverage incomplete. |
+| [Service inventory review](skills/service-inventory-review/SKILL.md) | Which recorded listeners disagree with the approved TCP/UDP port policy | Archived Nmap XML and a baseline for one address, deployment and network observation point. |
+| [ZAP alert report review](skills/zap-alert-report-review/SKILL.md) | Which existing alert groups meet a site's review threshold | A saved traditional ZAP JSON report and the owner's risk and confidence thresholds. |
+| [S3 public access block review](skills/s3-public-access-block-review/SKILL.md) | Whether the required Block Public Access flags are effective for one bucket | The bucket and effective owner-account responses, tied to the same snapshot and policy. |
+| [Kubernetes privileged-container review](skills/kubernetes-privileged-container-review/SKILL.md) | Whether a regular, init or ephemeral container requested privileged mode | A saved Linux Pod from the API server with matching UID and resource version. |
+
+Build these ZIPs from this checkout. Each guide identifies the supported input and the meaning of a pass, gap or unknown result. These skills came from reviewing three community directories. The individual guides link to the tool authors and platform specifications used to implement each check. [awesome-pentest](https://github.com/enaqx/awesome-pentest) · [Penetration-Testing](https://github.com/wtsxDev/Penetration-Testing) · [PentestingEverything](https://github.com/m14r41/PentestingEverything)
+
 ## Compatibility and license
 
 Tested with the Go ARTEX ZIP importer in checkout `65045ef`. This is an independent community collection for the ARTEX project originally created by Autumn-27 and continued by BaaRai. [ARTEX project](https://github.com/BaaRai/ARTEX)

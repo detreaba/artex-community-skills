@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "account": "example-owner",
+    "bucket": "site-assets",
+    "ownership_ref": "inventory-bucket-owner-19",
+    "region": "eu-west-1",
+    "snapshot": "review-19",
+    "bucket_type": "general-purpose",
+    "access_path": "direct-bucket"
+  },
+  "policy_ref": "private-origin-baseline-v2",
+  "required": [
+    "BlockPublicAcls",
+    "IgnorePublicAcls",
+    "BlockPublicPolicy",
+    "RestrictPublicBuckets"
+  ],
+  "bucket_evidence": {
+    "account": "example-owner",
+    "region": "eu-west-1",
+    "snapshot": "review-19",
+    "bucket": "site-assets",
+    "operation": "s3api.get-public-access-block",
+    "ref": "export-bucket-19",
+    "response": {
+      "PublicAccessBlockConfiguration": {
+        "BlockPublicAcls": true,
+        "IgnorePublicAcls": false,
+        "BlockPublicPolicy": true,
+        "RestrictPublicBuckets": false
+      }
+    }
+  },
+  "account_evidence": {
+    "account": "example-owner",
+    "region": "eu-west-1",
+    "snapshot": "review-19",
+    "operation": "s3control.get-public-access-block",
+    "ref": "export-account-19",
+    "response": {
+      "PublicAccessBlockConfiguration": {
+        "BlockPublicAcls": false,
+        "IgnorePublicAcls": true,
+        "BlockPublicPolicy": false,
+        "RestrictPublicBuckets": false
+      }
+    }
+  }
+}

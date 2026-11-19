@@ -1,0 +1,45 @@
+{
+  "scope": {
+    "cluster": "training-eu",
+    "namespace": "web",
+    "name": "catalog-0",
+    "uid": "4cdc84c1-9d37-4fcc-ace1-e823c86a8527",
+    "resourceVersion": "8240"
+  },
+  "evidence": {
+    "cluster": "training-eu",
+    "source": "api-server-get",
+    "ref": "pod-export-8240",
+    "privilege_fields_complete": true,
+    "pod": {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "namespace": "web",
+        "name": "catalog-0",
+        "uid": "4cdc84c1-9d37-4fcc-ace1-e823c86a8527",
+        "resourceVersion": "8240"
+      },
+      "spec": {
+        "os": {
+          "name": "linux"
+        },
+        "containers": [
+          {
+            "name": "web",
+            "image": "registry.invalid/training-web:1",
+            "securityContext": {
+              "privileged": false
+            }
+          }
+        ],
+        "initContainers": [
+          {
+            "name": "prepare",
+            "image": "registry.invalid/training-init:1"
+          }
+        ]
+      }
+    }
+  }
+}
