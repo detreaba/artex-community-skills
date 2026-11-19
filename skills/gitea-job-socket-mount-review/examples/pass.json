@@ -1,0 +1,57 @@
+{
+  "job": {
+    "id": "build-job-7",
+    "runner": "ci-runner-a",
+    "container": "job-container-7",
+    "build": "ci-build-42",
+    "daemon": "engine-a",
+    "ref": "job-assignment-7"
+  },
+  "policy": {
+    "ref": "mount-policy-4",
+    "daemon": "engine-a",
+    "inspect_ref": "job-inspect-7",
+    "socket_ref": "socket-evidence-7",
+    "socket_object": "endpoint-object-9",
+    "socket_paths": [
+      "/fixture/control/endpoint.sock"
+    ],
+    "aliases_complete": true
+  },
+  "inspect": {
+    "kind": "container_inspect",
+    "subject": "job",
+    "os": "linux",
+    "ref": "job-inspect-7",
+    "job": "build-job-7",
+    "runner": "ci-runner-a",
+    "Id": "job-container-7",
+    "build": "ci-build-42",
+    "daemon": "engine-a",
+    "coverage": "complete",
+    "total": 1,
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/fixture/control-archive",
+        "Destination": "/job/data",
+        "RW": true
+      }
+    ]
+  },
+  "backing": {
+    "ref": "effective-backing-7",
+    "daemon": "engine-a",
+    "inspect_ref": "job-inspect-7",
+    "mounts": [
+      {
+        "Type": "bind",
+        "Source": "/fixture/control-archive",
+        "Destination": "/job/data",
+        "kind": "directory",
+        "canonical": "/fixture/control-archive",
+        "tree_complete": true
+      }
+    ]
+  }
+}
