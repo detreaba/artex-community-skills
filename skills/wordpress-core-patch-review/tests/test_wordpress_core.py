@@ -120,6 +120,8 @@ class WordPressCoreTests(unittest.TestCase):
                 self.assertEqual(row["kev"]["date_added"], added)
                 self.assertTrue(all(u.startswith("https://") for u in row["sources"]))
         self.assertEqual(self.check(site(UPGRADE, "7.1"))["version"], "7.1")
+        # The vendor advisory's own publication date (GHSA-4w3m-c66w-69mg published_at 2026-10-29).
+        self.assertEqual(self.check(site(UPGRADE, "7.1.4"))["published"], "2026-10-29")
 
     def test_malformed_requests_never_return_a_verdict(self):
         valid = json.dumps(site(UPGRADE, "7.1.3")).encode()
@@ -129,7 +131,16 @@ class WordPressCoreTests(unittest.TestCase):
                     json.dumps({**site(UPGRADE, "7.1.3"), "applicability": review(app_router=True)}).encode(),
                     json.dumps({**site(TEMPLATE, "7.1.1"),
                                 "applicability": review(theme_has_page_prefixed_directory="yes")}).encode(),
-                    b'{"advisory":"CVE-2026-119977","advisory":"CVE-2026-60137","inventory":{}}'):
+                    b'{"advisory":"CVE-2026-119977","advisory":"CVE-2026-60137","inventory":{}}',
+                    # Configuration evidence is validated even when the inventory gate fails.
+                    json.dumps({**site(BATCH, "6.9.4", deployment_verified=False),
+                                "applicability": review(theme_has_page_prefixed_directory=True)}).encode(),
+                    json.dumps({**site(TEMPLATE, "6.9.4", deployment_verified=False),
+                                "applicability": review(theme_has_page_prefixed_directory="yes")}).encode(),
+                    # NaN and Infinity are not JSON (RFC 8259), and the body must be UTF-8.
+                    valid.replace(b'"release-5"', b"NaN", 1), valid.replace(b'"release-5"', b"Infinity", 1),
+                    valid.replace(b'"release-5"', b"1e999", 1), json.dumps(site(UPGRADE, "7.1.3")).encode("utf-16"),
+                    valid.replace(b"core-version-5", b"core-version-\xed\xa0\x80", 1)):
             with self.subTest(raw=raw[:70]):
                 code, result = self.run_cli(raw)
                 self.assertEqual((code, result["error"]), (2, "invalid_input"))

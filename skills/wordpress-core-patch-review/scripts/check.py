@@ -46,7 +46,7 @@ ADVISORIES = {
         "note": "Remote code execution needs both documented pre-conditions: the active theme and a readable local PHP file.",
     },
     "CVE-2026-119977": {
-        "ghsa": "GHSA-4w3m-c66w-69mg", "published": "2026-10-28", "kev_date_added": "2026-11-03",
+        "ghsa": "GHSA-4w3m-c66w-69mg", "published": "2026-10-29", "kev_date_added": "2026-11-03",
         "fixed": _fixes("7.1.4 7.0.8 6.9.11 6.8.12 6.7.11 6.6.11 6.5.14 6.4.14 6.3.14 6.2.15 6.1.16 6.0.18 5.9.20 "
                         "5.8.19 5.7.21 5.6.23 5.5.24 5.4.25 5.3.27 5.2.30 5.1.28 5.0.31 4.9.35 4.8.34 4.7.39"),
         "conditions": (),
@@ -130,6 +130,10 @@ def review(request):
     inventory = check_fields(request.get("inventory", {}), (
         "asset", "build", "ref", "version", "origin", "deployment_verified", "core_checksums_verified"))
     config = check_fields(request.get("applicability", {}), ("asset", "build", "ref", "conditions"))
+    # Validate configuration evidence whether or not the inventory gate passes.
+    conditions = check_fields(config.get("conditions", {}), profile["conditions"])
+    if any(v is not None and type(v) is not bool for v in conditions.values()):
+        raise ValueError("A condition must be true, false or null.")
     scope = {k: alias(inventory.get(k)) for k in ("asset", "build")}
     inv_ref = alias(inventory.get("ref"))
     status, fixed, detail = "unknown", None, "A referenced core version record from the deployed build is required."
@@ -166,12 +170,26 @@ def unique_keys(pairs):
     return obj
 
 
+def reject_constant(token):
+    raise ValueError(f"{token} is not valid JSON.")
+
+
+def finite_float(text):
+    value = float(text)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("Numbers must be finite.")
+    return value
+
+
 def main():
     try:
         raw = sys.stdin.buffer.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ValueError("Input exceeds the supported size.")
-        result = review(json.loads(raw, object_pairs_hook=unique_keys))
+        # RFC 8259: the body must be UTF-8; NaN and Infinity are not JSON.
+        text = raw.decode("utf-8")
+        result = review(json.loads(text, object_pairs_hook=unique_keys,
+                                   parse_constant=reject_constant, parse_float=finite_float))
     except (ValueError, RecursionError):
         print(json.dumps({"error": "invalid_input", "detail": "Check the named advisory, scoped fields and input size."}))
         return 2
