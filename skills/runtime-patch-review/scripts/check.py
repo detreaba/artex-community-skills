@@ -5,7 +5,8 @@ import sys
 
 
 PHP_OCT_21_FIXES = ((8, 2, 35), (8, 3, 36), (8, 4, 27), (8, 5, 12))
-PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13))
+PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13), (8, 6, 0))
+PHP_860_CHANGELOG = "https://www.php.net/ChangeLog-8.php#8.6.0"
 
 ADVISORIES = {
     "CVE-2026-109618": {
@@ -30,6 +31,7 @@ ADVISORIES = {
         "branch_parts": 2,
         "conditions": ("upload_progress_enabled", "shared_session_serializer_mismatch"),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx",
+        "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "PHP configurations sharing session storage require review even after the upstream update.",
     },
     "CVE-2026-129292": {
@@ -38,6 +40,7 @@ ADVISORIES = {
         "branch_parts": 2,
         "conditions": ("fpm_status_enabled", "request_metadata_reaches_pool", "full_status_rendered_as_html"),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-3mg3-cr28-46gc",
+        "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "Review how the affected pool records request metadata and how operators or tools render its status. A private status page alone does not settle this check.",
     },
     "CVE-2026-129538": {
@@ -46,6 +49,7 @@ ADVISORIES = {
         "branch_parts": 2,
         "conditions": ("php_cgi_serves_requests", "cgi_fix_pathinfo_enabled", "affected_frontend_path_mapping"),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-5j3f-64r7-f564",
+        "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "The documented condition applies to the php-cgi binary and particular web server mappings. PHP-FPM and the Apache PHP module are outside its scope.",
     },
     "CVE-2026-123865": {
@@ -132,7 +136,7 @@ def review(request):
         "advisory": advisory, "scope": scope, "patch_status": patch, "patch_reason": detail,
         "first_fixed_on_branch": fixed, "applicability": applicability,
         "evidence_refs": {"inventory": ref, "configuration": config_ref},
-        "sources": [profile["source"]],
+        "sources": [profile["source"], *profile.get("release_sources", ())],
         "limitations": [
             "Patch status relies on the operator's evidence of the running package and release origin.",
             "Applicability describes the documented feature conditions only. Application impact requires separate evidence.",

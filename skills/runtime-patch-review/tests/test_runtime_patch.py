@@ -121,7 +121,7 @@ class RuntimePatchTests(unittest.TestCase):
         self.assertEqual(review(inventory(NODE, "v24.20.111"))["patch_status"], "affected_version")
 
     def test_incomplete_or_unsupported_versions(self):
-        for advisory, values in [(PHP, ["8.1.99", "8.6.0", "9.0.0", "8.4.28-dev", "v8.4.28", "8"]),
+        for advisory, values in [(PHP, ["8.1.99", "8.7.0", "9.0.0", "8.4.28-dev", "v8.4.28", "8"]),
                                  (NODE, ["20.0.0", "25.99.99", "27.0.0", "24.22.3-rc.1", "24.22.3+build"])]:
             for version in values + [None, 24, [], "024.22.3", " 8.4.28", "8.4.28\n", "８.４.２８"]:
                 with self.subTest(advisory=advisory, version=version):
@@ -189,10 +189,25 @@ class RuntimePatchTests(unittest.TestCase):
                 request = {**inventory(advisory, "8.4.28"), "applicability": {**config(**enabled), "build": "elsewhere"}}
                 result = review(request)
                 self.assertEqual((result["patch_status"], result["applicability"]), ("vendor_fix_present", "unknown"))
-                for origin, version in (("distribution", "8.5.13"), ("upstream", "8.6.0"), ("upstream", "8.5.13-rc1")):
+                for origin, version in (("distribution", "8.5.13"), ("upstream", "8.7.0"), ("upstream", "8.5.13-rc1")):
                     self.assertEqual(review(inventory(advisory, version, origin=origin))["patch_status"], "unknown")
                 with self.assertRaises(ValueError):
                     review({**inventory(advisory, "8.5.12"), "applicability": config(upload_progress_enabled=True)})
+
+    def test_php_86_november_fixes_require_a_stable_serving_upstream_release(self):
+        for advisory in (PHP, PHP_FPM, PHP_CGI):
+            for version, fields, status, first in (
+                ("8.6.0", {}, "vendor_fix_present", "8.6.0"),
+                ("8.6.1", {}, "vendor_fix_present", "8.6.0"),
+                ("8.6.0RC7", {}, "unknown", None),
+                ("8.6.0", {"origin": "distro"}, "unknown", None),
+                ("8.6.0", {"serving_process_verified": False}, "unknown", None),
+            ):
+                with self.subTest(advisory=advisory, version=version, fields=fields):
+                    row = self.php_cli(advisory, version, **fields)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, first))
+                    self.assertIn("https://www.php.net/ChangeLog-8.php#8.6.0", row["sources"])
+                    self.assertEqual(row["applicability"], "unknown")
 
     def test_wrong_scope_or_missing_reference_invalidates_configuration(self):
         configuration = config(node_handles_http2=True)
