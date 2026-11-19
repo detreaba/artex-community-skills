@@ -37,7 +37,18 @@ The input is one JSON object, as in the [affected](examples/gap.json), [no match
 - `deployment_verified`: set this to true only when that artifact ties the list to the deployed build.
 - `packages`: up to 20,000 entries.
 
-The examples embed a small synthetic `snapshot`; real reviews pass the export files with `--osv`. Each `--osv` value names the export's family (`npm`, `Packagist` or `Debian`). A file that does not mostly contain that family's records does not count as a snapshot.
+The examples embed a small synthetic `snapshot`; real reviews pass the export files with `--osv`. Each `--osv` value names the export's family (`npm`, `Packagist` or `Debian`).
+- A file that doesn't mostly contain that family's records doesn't count as a snapshot.
+- A snapshot is `complete` when every record in it was read.
+- Records whose ranges break the OSV schema are counted in `damaged_ranges`. They make only the packages they name `unknown`.
+- The checker can't tell a partial download from the full export, so use the official `all.zip` and cite its SHA-256.
+
+Two rules keep results conservative:
+- **Composer versions** are compared under Composer's ordering and under OSV's own Packagist ordering, which is PHP's `version_compare`. The two disagree on short forms and prereleases: OSV sorts `8.4` before `8.4.0`, and `1.10.0-alpha` after `1.10`. When they disagree, that record is inconclusive.
+- **Debian coverage is judged per release.** OSV's fixed-advisory records (DSA/DLA) can't show that a release's open issues are tracked. So `no_matching_advisory` needs security-tracker records (`DEBIAN-*`) for that release, from a source declared as Debian.
+  - The threshold is at least a quarter of the count for the best-covered release in the loaded data. This is a heuristic, relative to what was loaded.
+  - When this skill was written, Debian 12–14 each had over 55,000 tracker entries. Debian 11 had about 1,200 and older releases had none.
+  - Affected matches on an uncovered release are still reported.
 
 ## Interpret the result in ARTEX
 
@@ -47,13 +58,16 @@ Report `review_level` (`unreviewed`), the asset, build and inventory reference, 
   - Name each advisory ID and CVE, and give `fixed_in` as the published fix to plan against.
   - `kev_date_added` means CISA lists that CVE as exploited in the wild. Treat it as the top remediation priority.
   - `malicious` means the record reports a malicious release. Treat the build as potentially compromised and follow the owner's incident process rather than only upgrading.
-  - Debian's own `distribution_urgency` is passed through. A value such as `unimportant` is Debian's triage, not a clean result.
+  - Debian's own `distribution_urgency` is passed through, taken from the entry for the matched release. A value such as `unimportant` is Debian's triage, not a clean result.
+  - `wildcard_package` means the record covers every package in that ecosystem or release, for example an end-of-life notice.
 - `unknown` means the checker could not reach a conclusion. Use `reason` to ask for the missing evidence:
   - an inventory tied to the deployed build;
   - a supported ecosystem;
   - a complete snapshot for that ecosystem;
-  - Debian source package names;
+  - Debian source package names, and a release suffix such as `Debian:12`;
   - a standard version string.
+
+  It is also `unknown` when Composer's and OSV's version orderings disagree, or when the loaded Debian data doesn't track open issues for that release.
 
   It is also `unknown` when a record cannot be evaluated conclusively. One example is a version above a `last_affected` ceiling with no published fix, which can still be vulnerable. The advisory list shows each inconclusive record and why.
 - `no_matching_advisory` means no record in the loaded snapshot covers this version. It is **not** a fix verdict:

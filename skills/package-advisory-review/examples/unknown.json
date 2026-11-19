@@ -95,7 +95,7 @@
         ]
       },
       {
-        "id": "EXAMPLE-2026-0003",
+        "id": "DEBIAN-EXAMPLE-0003",
         "modified": "2026-11-03T00:00:00Z",
         "summary": "Synthetic HTTP/2 resource exhaustion",
         "affected": [

@@ -43,8 +43,8 @@ ADVISORIES = [
         (ECO, [{"introduced": "6.0.0"}, {"fixed": "6.4.50"}]), (ECO, [{"introduced": "7.0.0"}, {"fixed": "7.4.23"}])),
     rec("T-PKG-2", "Packagist:https://packages.drupal.org/8", "drupal/foo", (ECO, [{"introduced": "0"}, {"fixed": "1.35.0"}])),
     rec("T-PKG-4", "Packagist", "acme/rc", (ECO, [{"introduced": "0"}, {"fixed": "2.0.0-RC2"}])),
-    rec("T-DEB-1", "Debian:12", "nginx", (ECO, [{"introduced": "0"}, {"fixed": "1.22.1-9+deb12u2"}]), upstream=["CVE-2026-0002"]),
-    rec("T-DEB-3", "Debian:11", "nginx", (ECO, [{"introduced": "0"}, {"fixed": "9.9-1"}])),
+    rec("DEBIAN-SYNTHETIC-1", "Debian:12", "nginx", (ECO, [{"introduced": "0"}, {"fixed": "1.22.1-9+deb12u2"}]), upstream=["CVE-2026-0002"]),
+    rec("DEBIAN-SYNTHETIC-3", "Debian:11", "nginx", (ECO, [{"introduced": "0"}, {"fixed": "9.9-1"}])),
 ]
 KEV = {"catalogVersion": "test", "vulnerabilities": [{"cveID": "CVE-2026-0001", "dateAdded": "2026-01-02"},
                                                     {"cveID": "CVE-2026-0002", "dateAdded": "2026-02-03"}]}
@@ -239,7 +239,7 @@ class PackageAdvisoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for name, family, record, package, want in (
                 ("wild.zip", "Debian", single("W-1", "Debian:12", "*", [{"introduced": "0"}]), lib12, "affected"),
-                ("wild-other.zip", "Debian", {"id": "W-2", "modified": "2026-11-19T00:00:00Z", "affected": [
+                ("wild-other.zip", "Debian", {"id": "DEBIAN-SYNTHETIC-W2", "modified": "2026-11-19T00:00:00Z", "affected": [
                     single("x", "Debian:11", "*", [{"introduced": "0"}])["affected"][0],
                     single("x", "Debian:12", "other-lib", [{"introduced": "0"}, {"fixed": "2.0-1"}])["affected"][0]]},
                  lib12, "no_matching_advisory"),
@@ -257,6 +257,69 @@ class PackageAdvisoryTests(unittest.TestCase):
                     self.assertEqual(row["status"], want)
                     if name in ("wild.zip", "npm-wild.zip"):
                         self.assertTrue(row["advisories"][0]["wildcard_package"])
+
+    def test_composer_and_osv_packagist_orderings_must_agree(self):
+        # OSV orders Packagist versions with PHP's version_compare: 8.4 < 8.4.0 and 1.10.0-alpha > 1.10.
+        # When that ordering and Composer's disagree, the record is inconclusive rather than clear.
+        records = [rec("O-1", "Packagist", "acme/short", (ECO, [{"introduced": "0"}, {"fixed": "8.4.0"}])),
+                   rec("O-2", "Packagist", "acme/pre", (ECO, [{"introduced": "1.10"}, {"fixed": "1.10.11"}])),
+                   rec("O-3", "Packagist", "acme/build", (ECO, [{"introduced": "0"}, {"fixed": "8.0.2"}]),
+                       versions=["8.0.2+bedrock-1.18.10"])]
+        for name, version, want in (("acme/short", "8.4", "unknown"), ("acme/short", "8.4.0", "no_matching_advisory"),
+                                    ("acme/short", "8.3.9", "affected"), ("acme/pre", "1.10.0-alpha", "unknown"),
+                                    ("acme/pre", "1.10.5", "affected"), ("acme/pre", "1.9.9", "no_matching_advisory"),
+                                    ("acme/build", "8.0.2", "unknown"), ("acme/build", "8.0.1", "affected")):
+            with self.subTest(name=name, version=version):
+                self.assertEqual(self.one("Packagist", name, version, covers=("Packagist",), advisories=records)["status"], want)
+        self.assertEqual(checker.php_cmp(checker.php_parts("8.4"), checker.php_parts("8.4.0")), -1)
+        self.assertEqual(checker.php_cmp(checker.php_parts("4.0.0-beta"), checker.php_parts("4.0")), 1)
+        self.assertEqual(checker.php_cmp(checker.php_parts("2.0.0-rc2"), checker.php_parts("2.0.0-RC2")), 0)
+        self.assertEqual(checker.php_cmp(checker.php_parts("1.0.0-p1"), checker.php_parts("1.0.0")), 1)
+
+    def test_debian_release_coverage_comes_from_tracker_records(self):
+        tracked = [rec(f"DEBIAN-SYNTHETIC-T{i}", "Debian:12", f"lib{i}", (ECO, [{"introduced": "0"}, {"fixed": "1.0-1"}]))
+                   for i in range(4)]
+        fixed_only = rec("DSA-SYNTHETIC-1", "Debian:11", "nginx", (ECO, [{"introduced": "0"}, {"fixed": "1.18.0-6.1+deb11u3"}]))
+        unscoped = rec("DEBIAN-SYNTHETIC-U1", "Debian", "zlib", (ECO, [{"introduced": "0"}, {"fixed": "1:1.3.dfsg-1"}]))
+        snap = tracked + [fixed_only, unscoped]
+        for eco, name, version, want in (("Debian:11", "nginx", "1.18.0-6.1+deb11u4", "unknown"),
+                                         ("Debian:11", "nginx", "1.18.0-6.1+deb11u2", "affected"),
+                                         ("Debian:12", "nginx", "1.22.1-9", "no_matching_advisory"),
+                                         ("Debian:12", "zlib", "1:1.2.13.dfsg-1", "affected"),
+                                         ("Debian", "nginx", "1.22.1-9", "unknown")):
+            with self.subTest(eco=eco, name=name, version=version):
+                self.assertEqual(self.one(eco, name, version, covers=("Debian",), advisories=snap)["status"], want)
+        # Tracker records from a source that does not declare Debian cannot grant Debian coverage.
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = self.write_zip(tmp, "debian11.zip", [rec("DEBIAN-SYNTHETIC-11", "Debian:11", "pkg0",
+                                                              (ECO, [{"introduced": "0"}, {"fixed": "1.0-1"}]))])
+            data = {"inventory": {"asset": "demo-site", "build": "build-1", "ref": "inventory-1",
+                                  "deployment_verified": True, "packages": [pkg("Debian:12", "openssl", "3.0.11-1")]},
+                    "snapshot": {"label": "npm-only", "covers": ["npm"], "advisories": ADVISORIES[:1] + tracked}}
+            code, out = self.run_cli(json.dumps(data).encode(), "--osv", f"Debian={archive}")
+            self.assertEqual((code, out["packages"][0]["status"]), (0, "unknown"))
+
+    def test_urgency_and_inline_completeness_follow_the_matched_scope(self):
+        # Grok, PR #9: one record names two releases; urgency must come from the matched Debian:12 entry.
+        two_releases = {"id": "DSA-SYNTHETIC-9", "modified": "2026-11-01T00:00:00Z", "affected": [
+            {"package": {"ecosystem": "Debian:11", "name": "openssl"}, "ecosystem_specific": {"urgency": "unimportant"},
+             "ranges": [{"type": ECO, "events": [{"introduced": "0"}, {"fixed": "1.1.1w-0+deb11u2"}]}]},
+            {"package": {"ecosystem": "Debian:12", "name": "openssl"}, "ecosystem_specific": {"urgency": "high"},
+             "ranges": [{"type": ECO, "events": [{"introduced": "0"}, {"fixed": "3.0.12-1"}]}]}]}
+        tracker = rec("DEBIAN-SYNTHETIC-T9", "Debian:12", "lib9", (ECO, [{"introduced": "0"}, {"fixed": "1.0-1"}]))
+        row = self.one("Debian:12", "openssl", "3.0.11-1", covers=("Debian",), advisories=[two_releases, tracker])
+        self.assertEqual((row["status"], row["advisories"][0]["distribution_urgency"]), ("affected", "high"))
+        npm_only = [rec("N-1", "npm", "alpha", (SEMVER, [{"introduced": "0"}, {"fixed": "1.0.2"}]))]
+        for covers in (("npm", "Packagist"), ("Packagist", "npm")):
+            with self.subTest(covers=covers):
+                out = self.status(request([pkg("Packagist", "acme/demo", "1.0.0"), pkg("npm", "alpha", "2.0.0")],
+                                          covers=covers, advisories=npm_only))
+                self.assertEqual({s["family"]: s["complete"] for s in out["snapshots"]}, {"npm": True, "Packagist": False})
+                self.assertEqual([p["status"] for p in out["packages"]], ["unknown", "no_matching_advisory"])
+        damaged = npm_only + [rec("D-9", "npm", "beta", (SEMVER, [{"fixed": "2.0.0"}]))]
+        out = self.status(request([pkg("npm", "beta", "1.0.0")], covers=("npm",), advisories=damaged))
+        self.assertEqual((out["snapshots"][0]["damaged_ranges"], out["snapshots"][0]["complete"]), (1, True))
+        self.assertEqual(out["packages"][0]["status"], "unknown")
 
     def test_snapshot_without_family_or_with_invalid_record_is_incomplete(self):
         self.assertEqual(self.one("npm", "mu", "1.0.0", covers=("Packagist",))["status"], "unknown")

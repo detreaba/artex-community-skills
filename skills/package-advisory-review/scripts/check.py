@@ -143,10 +143,51 @@ def dpkg_cmp(a, b):
     return _cmp(a[0], b[0]) or _dpkg_part_cmp(a[1], b[1]) or _dpkg_part_cmp(a[2], b[2])
 
 
+# OSV orders Packagist versions with PHP's version_compare(), as documented in osv.dev's
+# osv/ecosystems/packagist.py (Apache-2.0). The behaviour is re-implemented here, not copied.
+# Special parts match exactly and case-sensitively; any other non-numeric part sorts below "dev".
+_PHP_SPECIAL = {"dev": 0, "alpha": 1, "a": 1, "beta": 2, "b": 2, "RC": 3, "rc": 3, "#": 4, "pl": 5, "p": 5}
+
+
+def php_parts(value):
+    if not isinstance(value, str) or len(value) > MAX_FIELD:
+        return None
+    if value.startswith("v"):
+        value = value[1:]
+    value = re.sub(r"[-_+.]+", ".", value)
+    value = re.sub(r"([^\d.])(\d)", r"\1.\2", value)
+    value = re.sub(r"(\d)([^\d.])", r"\1.\2", value)
+    return tuple(value.split("."))
+
+
+def _php_rank(part):
+    return _PHP_SPECIAL.get(part, -1)
+
+
+def php_cmp(a, b):
+    for x, y in zip(a, b):
+        if x.isdecimal() and y.isdecimal():
+            result = _cmp(int(x), int(y))
+        elif not x.isdecimal() and not y.isdecimal():
+            result = _cmp(_php_rank(x), _php_rank(y))
+        elif x.isdecimal():
+            result = _cmp(_php_rank("#"), _php_rank(y))
+        else:
+            result = _cmp(_php_rank(x), _php_rank("#"))
+        if result:
+            return result
+    if len(a) > len(b):
+        return 1 if a[len(b)].isdecimal() else php_cmp(a[len(b):], ("#",))
+    if len(a) < len(b):
+        return -1 if b[len(a)].isdecimal() else php_cmp(("#",), b[len(a):])
+    return 0
+
+
 COMPARATORS = {
     "SEMVER": (semver_parse, _cmp),
     "npm": (semver_parse, _cmp),
     "Packagist": (composer_parse, _cmp),
+    "PackagistOSV": (php_parts, php_cmp),
     "Debian": (dpkg_parse, dpkg_cmp),
 }
 
@@ -173,7 +214,8 @@ def family_of(ecosystem):
         return "npm"
     if ecosystem == "Packagist" or ecosystem.startswith("Packagist:"):
         return "Packagist"
-    if ecosystem.startswith("Debian:"):
+    # The schema makes the Debian release suffix optional; an unsuffixed entry is unscoped.
+    if ecosystem == "Debian" or ecosystem.startswith("Debian:"):
         return "Debian"
     return None
 
@@ -186,7 +228,7 @@ def package_key(family, ecosystem, name):
     return (family, name)
 
 
-def evaluate_range(rng, version, family, ceiling_clear=False):
+def evaluate_range(rng, version, ordering, ceiling_clear=False):
     """Return (state, reason, fixed_above) for one range; state is affected, clear or inconclusive.
 
     The schema warns that versions above last_affected may be false negatives, so they are
@@ -204,7 +246,7 @@ def evaluate_range(rng, version, family, ceiling_clear=False):
         return "inconclusive", "The range has no introduced event, which the OSV schema requires.", []
     if "fixed" in kinds and "last_affected" in kinds:
         return "inconclusive", "The range mixes fixed and last_affected events, which the OSV schema forbids.", []
-    parse, raw_cmp = COMPARATORS["SEMVER" if rtype == "SEMVER" else family]
+    parse, raw_cmp = COMPARATORS["SEMVER" if rtype == "SEMVER" else ordering]
     cmp = _bounded_cmp(raw_cmp)
     v = parse(version)
     if v is None:
@@ -244,10 +286,24 @@ def evaluate_range(rng, version, family, ceiling_clear=False):
 
 
 def evaluate_entry(entry, version, family, ceiling_clear=False):
-    parse, raw_cmp = COMPARATORS[family]
+    """Packagist entries are evaluated under Composer's ordering and OSV's own Packagist
+    ordering; a verdict needs both to agree, otherwise the entry is inconclusive."""
+    first = evaluate_entry_under(entry, version, family, ceiling_clear)
+    if family != "Packagist":
+        return first
+    second = evaluate_entry_under(entry, version, "PackagistOSV", ceiling_clear)
+    if first[0] == second[0]:
+        return first
+    if "inconclusive" in (first[0], second[0]):
+        return first if first[0] == "inconclusive" else second
+    return ("inconclusive", "Composer's version ordering and OSV's Packagist ordering disagree for this version.", [])
+
+
+def evaluate_entry_under(entry, version, ordering, ceiling_clear=False):
+    parse, raw_cmp = COMPARATORS[ordering]
     listed = entry.get("versions") or []
     ranges = entry.get("ranges") or []
-    states = [evaluate_range(r, version, family, ceiling_clear) for r in ranges]
+    states = [evaluate_range(r, version, ordering, ceiling_clear) for r in ranges]
     hits = [s for s in states if s[0] == "affected"]
     parsed = parse(version)
     for item in listed:
@@ -304,12 +360,23 @@ def valid_record(rec):
     return True
 
 
+TRACKER_COVERAGE = 0.25
+
+
 class Snapshot:
     def __init__(self):
         self.index = {}
         self.ecosystems = set()
         self.sources = []
         self.complete = {}
+        # Per Debian release: entries from Debian security-tracker records (ID prefix "DEBIAN-"),
+        # counted only from sources declared to cover Debian. DSA/DLA records only describe
+        # fixed issues, so they cannot show that a release's open issues are tracked.
+        self.tracker = {}
+
+    def debian_release_covered(self, eco):
+        best = max(self.tracker.values(), default=0)
+        return self.tracker.get(eco, 0) >= max(1, TRACKER_COVERAGE * best)
 
     def add_record(self, rec, stats):
         if not valid_record(rec):
@@ -318,12 +385,21 @@ class Snapshot:
         stats["records"] += 1
         for fam in {family_of(e.get("package", {}).get("ecosystem", "")) for e in rec.get("affected", [])} - {None}:
             stats["family_records"][fam] = stats["family_records"].get(fam, 0) + 1
+        for entry in rec.get("affected", []):
+            for rng in entry.get("ranges", []):
+                kinds = [next(iter(event)) for event in rng.get("events", [])]
+                if "introduced" not in kinds or ("fixed" in kinds and "last_affected" in kinds):
+                    stats["damaged_ranges"] += 1
         if rec.get("withdrawn"):
             stats["withdrawn"] += 1
             return
         modified = rec.get("modified")
         if isinstance(modified, str) and modified > stats["newest_modified"]:
             stats["newest_modified"] = modified
+        if stats.get("declares_debian") and rec["id"].startswith("DEBIAN-"):
+            for eco in {e.get("package", {}).get("ecosystem", "") for e in rec.get("affected", [])}:
+                if eco.startswith("Debian:"):
+                    self.tracker[eco] = self.tracker.get(eco, 0) + 1
         for entry in rec.get("affected", []):
             pkg = entry.get("package", {})
             eco, name = pkg.get("ecosystem", ""), pkg.get("name", "")
@@ -336,9 +412,14 @@ class Snapshot:
             if current is None or str(rec.get("modified", "")) > str(current.get("modified", "")):
                 bucket[rec["id"]] = rec
 
+    @staticmethod
+    def _new_stats(family, source, declares_debian):
+        return {"family": family, "source": source, "sha256": None, "records": 0, "withdrawn": 0,
+                "invalid": 0, "unreadable": 0, "oversized": 0, "damaged_ranges": 0, "newest_modified": "",
+                "family_records": {}, "declares_debian": declares_debian}
+
     def load(self, family, path):
-        stats = {"family": family, "source": path.name, "sha256": None, "records": 0, "withdrawn": 0,
-                 "invalid": 0, "unreadable": 0, "oversized": 0, "newest_modified": "", "family_records": {}}
+        stats = self._new_stats(family, path.name, family == "Debian")
         if path.is_dir():
             for item in sorted(path.glob("*.json")):
                 if item.stat().st_size > MAX_RECORD:
@@ -362,13 +443,14 @@ class Snapshot:
         self._finish(family, stats)
 
     def load_inline(self, snapshot):
-        stats = {"family": "+".join(snapshot["covers"]), "source": "inline:" + snapshot.get("label", "request"),
-                 "sha256": None, "records": 0, "withdrawn": 0, "invalid": 0, "unreadable": 0,
-                 "oversized": 0, "newest_modified": "", "family_records": {}}
+        covers = list(dict.fromkeys(snapshot["covers"]))
+        shared = self._new_stats("+".join(covers), "inline:" + snapshot.get("label", "request"), "Debian" in covers)
         for rec in snapshot.get("advisories", []):
-            self.add_record(rec, stats)
-        for family in snapshot["covers"]:
-            self._finish(family, stats, report=family == snapshot["covers"][0], declared_export=False)
+            self.add_record(rec, shared)
+        # Report completeness per covered family, so the metadata matches each family's verdicts.
+        for family in covers:
+            stats = dict(shared, family=family, family_records=dict(shared["family_records"]))
+            self._finish(family, stats, declared_export=False)
 
     def _parse_into(self, raw, stats):
         try:
@@ -390,6 +472,9 @@ class Snapshot:
             stats["complete"] = ok
             stats["newest_modified"] = stats["newest_modified"] or None
             stats["family_records"] = dict(sorted(stats["family_records"].items()))
+            stats.pop("declares_debian", None)
+            if family == "Debian":
+                stats["debian_tracker_entries"] = dict(sorted(self.tracker.items()))
             self.sources.append(stats)
 
 
@@ -436,13 +521,19 @@ def review_package(pkg, snapshot, kev, bound):
     if family == "Debian" and pkg.get("source_package") is not True:
         row["reason"] = "Debian advisories name source packages. Supply the source package name and source version with source_package true."
         return row
-    if eco not in snapshot.ecosystems and family == "Debian":
-        row["reason"] = "The loaded snapshot has no records for this ecosystem string."
+    if family == "Debian" and eco == "Debian":
+        row["reason"] = "Name the Debian release, for example Debian:12. Coverage is judged per release."
         return row
     # The OSV schema's wildcard name "*" covers every package in the ecosystem (for example an
-    # end-of-life release), so wildcard records for the same ecosystem apply to this package too.
-    own_key, wildcard_key = package_key(family, eco, name), package_key(family, eco, "*")
-    records = {**snapshot.index.get(wildcard_key, {}), **snapshot.index.get(own_key, {})}
+    # end-of-life release), and an unsuffixed "Debian" entry is not scoped to a release, so both
+    # kinds of record apply to this package too.
+    own_key = package_key(family, eco, name)
+    keys = {own_key, package_key(family, eco, "*")}
+    if family == "Debian":
+        keys |= {("Debian", name), ("Debian", "*")}
+    records = {}
+    for key in keys:
+        records.update(snapshot.index.get(key, {}))
     affected, inconclusive = [], []
     for rec in sorted(records.values(), key=lambda r: r["id"]):
         if rec.get("withdrawn"):
@@ -453,21 +544,22 @@ def review_package(pkg, snapshot, kev, bound):
             if family_of(p.get("ecosystem", "")) != family:
                 continue
             entry_key = package_key(family, p.get("ecosystem", ""), p.get("name", ""))
-            if entry_key not in (own_key, wildcard_key):
+            if entry_key not in keys:
                 continue
-            wildcard = wildcard or entry_key == wildcard_key
-            results.append(evaluate_entry(entry, version, family, ceiling_clear=rec["id"].startswith("MAL-")))
+            wildcard = wildcard or entry_key[1] == "*"
+            outcome = evaluate_entry(entry, version, family, ceiling_clear=rec["id"].startswith("MAL-"))
+            results.append((outcome, entry))
         if not results:
             continue
-        state = next((r for r in results if r[0] == "affected"), None) or \
-            next((r for r in results if r[0] == "inconclusive"), None) or results[0]
+        state, decisive = next((r for r in results if r[0][0] == "affected"), None) or \
+            next((r for r in results if r[0][0] == "inconclusive"), None) or results[0]
         if state[0] == "clear":
             continue
         cves = record_cves(rec)
         kev_dates = sorted({kev[c] for c in cves if c in kev})
-        urgency = next((e.get("ecosystem_specific", {}).get("urgency") for e in rec.get("affected", [])
-                        if isinstance(e.get("ecosystem_specific"), dict)
-                        and e.get("ecosystem_specific", {}).get("urgency")), None)
+        # Urgency comes from the entry that produced the verdict, not from another release's entry.
+        specific = decisive.get("ecosystem_specific")
+        urgency = specific.get("urgency") if isinstance(specific, dict) else None
         item = {"id": rec["id"], "cves": cves, "status": "affected" if state[0] == "affected" else "inconclusive",
                 "reason": state[1], "fixed_in": state[2][:5], "kev_date_added": kev_dates[0] if kev_dates else None,
                 "malicious": rec["id"].startswith("MAL-"), "summary": str(rec.get("summary", ""))[:200],
@@ -483,6 +575,11 @@ def review_package(pkg, snapshot, kev, bound):
         row["reason"] = f"{len(affected)} advisory record(s) in the snapshot affect this version."
     elif not snapshot.complete.get(family):
         row["reason"] = "No complete snapshot for this ecosystem was loaded."
+    elif family == "Debian" and not snapshot.debian_release_covered(eco):
+        best = max(snapshot.tracker.values(), default=0)
+        row["reason"] = (f"The loaded Debian data does not track open issues for {eco}: "
+                         f"{snapshot.tracker.get(eco, 0)} security-tracker entries, against {best} for the "
+                         "best-covered release. Fixed-advisory (DSA/DLA) records alone cannot rule out open issues.")
     elif COMPARATORS[family][0](version) is None:
         row["reason"] = "The version is outside the syntax this ecosystem defines."
     elif inconclusive:
