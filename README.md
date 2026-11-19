@@ -9,7 +9,7 @@ Independent ARTEX skills for website administrators. Each uses a small offline c
 | [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record and, when available, same-build evidence of the relevant application feature. |
 | [Authorization matrix](skills/authorization-matrix/SKILL.md) | Do recorded access decisions agree with the owner's role and tenant policy? | A versioned policy and saved allow/deny results for the same build, role, resource and operation. |
 
-The November 2026 edition includes nine advisory checks. Select the named advisory using the deployed product and the evidence you have. [Advisory catalog](ADVISORIES.md)
+Release v0.1.0 includes nine advisory checks. The catalog lists every advisory supported by this checkout. [Advisory catalog](ADVISORIES.md)
 
 ## Try one in a minute
 
@@ -30,6 +30,16 @@ Read the rule for CSP (`WEB-CSP-01`), then repeat with `examples/pass.json` and 
 4. In operator Chat, ask it to load the skill by name. Paste the checker result and a reference for the inspected build, page or test run. For example, “Load browser-controls. Explain these three results for the captured homepage and list what remains unknown.” Treat a fixture result as a demonstration. Use the client's own records for a client finding.
 
 The public guides can interpret pasted checker results in a fresh ARTEX installation. They require no MCP server, custom tool registration, model shell access or API key. The independent checkers can also be used without ARTEX.
+
+## Review the infrastructure serving a website
+
+| Skill | Advisory coverage | Evidence for one instance |
+| --- | --- | --- |
+| [NGINX worker patch review](skills/nginx-worker-patch-review/SKILL.md) | Ten advisories in the November 18 upstream release | The executable version of a running NGINX Open Source worker. |
+| [Apache module patch review](skills/apache-module-patch-review/SKILL.md) | Three advisories in Apache HTTP Server 2.4.71 | The active module's provenance and release, including a separately supplied upstream mod_h2. |
+| [PostgreSQL server patch review](skills/postgres-server-patch-review/SKILL.md) | Four November 12 core-server advisories | Matching text and numeric versions for the same connected database backend. |
+
+Build these ZIPs from this checkout. Each includes its checker, shared evidence reader, tests and three synthetic cases. Apply the recorded result to the identified process or instance. A fleet-wide claim requires evidence from every serving member.
 
 ## Build release files
 

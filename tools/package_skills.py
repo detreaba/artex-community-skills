@@ -11,6 +11,7 @@ from zipfile import ZIP_STORED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 FIXED_FILES = ("SKILL.md", "scripts/check.py", "examples/gap.json",
                "examples/pass.json", "examples/unknown.json")
+USES_EVIDENCE_READER = {"nginx-worker-patch-review", "apache-module-patch-review", "postgres-server-patch-review"}
 
 
 def files_for_skill(skill):
@@ -34,7 +35,13 @@ def files_for_skill(skill):
     header = guide[1:guide.index("---", 1)]
     if [line.strip() for line in header if line.startswith("name:")] != [f"name: {skill.name}"]:
         raise ValueError(f"Frontmatter name must match the skill directory: {skill.name}")
-    return {f.relative_to(skill).as_posix(): f for f in entries}
+    files = {f.relative_to(skill).as_posix(): f for f in entries}
+    if skill.name in USES_EVIDENCE_READER:
+        reader = skill.parents[1] / "shared" / "advisory_evidence.py"
+        if reader.parent.is_symlink() or reader.is_symlink() or not reader.is_file():
+            raise ValueError("Missing regular shared evidence reader.")
+        files["scripts/advisory_evidence.py"] = reader
+    return files
 
 
 def build(root=ROOT):
