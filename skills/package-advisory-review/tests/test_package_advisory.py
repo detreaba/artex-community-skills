@@ -229,6 +229,35 @@ class PackageAdvisoryTests(unittest.TestCase):
             self.assertEqual(out["kev"]["catalog_version"], "test")
             self.assertEqual(out["packages"][0]["advisories"][0]["kev_date_added"], "2026-01-02")
 
+    def test_wildcard_names_and_damaged_ranges_never_read_as_clear(self):
+        # Review of c867711: the OSV schema's "*" name covers every package in the ecosystem, and every
+        # range must contain an introduced event (and may not mix fixed with last_affected).
+        def single(rid, eco, name, events):
+            return {"id": rid, "modified": "2026-11-19T00:00:00Z",
+                    "affected": [{"package": {"ecosystem": eco, "name": name}, "ranges": [{"type": ECO if eco.startswith("Debian") else SEMVER, "events": events}]}]}
+        lib12 = pkg("Debian:12", "training-lib", "1.0-1")
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, family, record, package, want in (
+                ("wild.zip", "Debian", single("W-1", "Debian:12", "*", [{"introduced": "0"}]), lib12, "affected"),
+                ("wild-other.zip", "Debian", {"id": "W-2", "modified": "2026-11-19T00:00:00Z", "affected": [
+                    single("x", "Debian:11", "*", [{"introduced": "0"}])["affected"][0],
+                    single("x", "Debian:12", "other-lib", [{"introduced": "0"}, {"fixed": "2.0-1"}])["affected"][0]]},
+                 lib12, "no_matching_advisory"),
+                ("npm-wild.zip", "npm", single("W-3", "npm", "*", [{"introduced": "0"}]), pkg("npm", "training-lib", "1.0.0"), "affected"),
+                ("empty.zip", "npm", single("D-1", "npm", "training-lib", []), pkg("npm", "training-lib", "1.0.0"), "unknown"),
+                ("fixed-only.zip", "npm", single("D-2", "npm", "training-lib", [{"fixed": "2.0.0"}]),
+                 pkg("npm", "training-lib", "1.0.0"), "unknown"),
+                ("mixed.zip", "npm", single("D-3", "npm", "training-lib", [{"introduced": "0"}, {"fixed": "2.0.0"},
+                                                                         {"last_affected": "3.0.0"}]),
+                 pkg("npm", "training-lib", "2.5.0"), "unknown"),
+            ):
+                with self.subTest(case=name):
+                    archive = self.write_zip(tmp, name, [record])
+                    row = self.zip_status([package], "--osv", f"{family}={archive}")["packages"][0]
+                    self.assertEqual(row["status"], want)
+                    if name in ("wild.zip", "npm-wild.zip"):
+                        self.assertTrue(row["advisories"][0]["wildcard_package"])
+
     def test_snapshot_without_family_or_with_invalid_record_is_incomplete(self):
         self.assertEqual(self.one("npm", "mu", "1.0.0", covers=("Packagist",))["status"], "unknown")
         broken = ADVISORIES + [{"id": 12345, "affected": "not-a-list"}]

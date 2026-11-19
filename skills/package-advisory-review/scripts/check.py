@@ -198,6 +198,12 @@ def evaluate_range(rng, version, family, ceiling_clear=False):
         return "inconclusive", "A GIT range needs the source repository.", []
     if rtype not in ("SEMVER", "ECOSYSTEM"):
         return "inconclusive", "Unsupported range type.", []
+    kinds = [next(iter(event)) for event in rng.get("events", [])]
+    if "introduced" not in kinds:
+        # The OSV schema requires every range to contain an introduced event.
+        return "inconclusive", "The range has no introduced event, which the OSV schema requires.", []
+    if "fixed" in kinds and "last_affected" in kinds:
+        return "inconclusive", "The range mixes fixed and last_affected events, which the OSV schema forbids.", []
     parse, raw_cmp = COMPARATORS["SEMVER" if rtype == "SEMVER" else family]
     cmp = _bounded_cmp(raw_cmp)
     v = parse(version)
@@ -433,18 +439,23 @@ def review_package(pkg, snapshot, kev, bound):
     if eco not in snapshot.ecosystems and family == "Debian":
         row["reason"] = "The loaded snapshot has no records for this ecosystem string."
         return row
-    records = snapshot.index.get(package_key(family, eco, name), {})
+    # The OSV schema's wildcard name "*" covers every package in the ecosystem (for example an
+    # end-of-life release), so wildcard records for the same ecosystem apply to this package too.
+    own_key, wildcard_key = package_key(family, eco, name), package_key(family, eco, "*")
+    records = {**snapshot.index.get(wildcard_key, {}), **snapshot.index.get(own_key, {})}
     affected, inconclusive = [], []
     for rec in sorted(records.values(), key=lambda r: r["id"]):
         if rec.get("withdrawn"):
             continue
-        results = []
+        results, wildcard = [], False
         for entry in rec.get("affected", []):
             p = entry.get("package", {})
             if family_of(p.get("ecosystem", "")) != family:
                 continue
-            if package_key(family, p.get("ecosystem", ""), p.get("name", "")) != package_key(family, eco, name):
+            entry_key = package_key(family, p.get("ecosystem", ""), p.get("name", ""))
+            if entry_key not in (own_key, wildcard_key):
                 continue
+            wildcard = wildcard or entry_key == wildcard_key
             results.append(evaluate_entry(entry, version, family, ceiling_clear=rec["id"].startswith("MAL-")))
         if not results:
             continue
@@ -463,6 +474,8 @@ def review_package(pkg, snapshot, kev, bound):
                 "modified": rec.get("modified")}
         if urgency:
             item["distribution_urgency"] = urgency
+        if wildcard:
+            item["wildcard_package"] = True
         (affected if state[0] == "affected" else inconclusive).append(item)
     row["advisories"] = affected + inconclusive
     if affected:
