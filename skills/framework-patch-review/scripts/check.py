@@ -13,18 +13,25 @@ DJANGO_CACHE_WINDOWS = (
 )
 DJANGO_BULLETIN = "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/"
 NEXT_ADVISORIES = "https://github.com/vercel/next.js/security/advisories/"
+# Both November 18 core advisories publish the same affected windows. Legacy
+# branches can require an upgrade to reach the first supported fix.
+DRUPAL_NOV_18 = {
+    "ecosystem": "composer", "package": "drupal/core", "published": "2026-11-18",
+    "windows": (
+        ((8, 0, 0), (10, 6, 22), (10, 7, 0)),
+        ((11, 0, 0), (11, 3, 22), (11, 4, 0)),
+        ((11, 4, 0), (11, 4, 13), (11, 5, 0)),
+    ),
+    "conditions": (),
+}
 ADVISORIES = {
     "CVE-2026-132165": {
-        "ecosystem": "composer", "package": "drupal/core", "published": "2026-11-18",
-        # Include the legacy core releases named in the bulletin. Only the three
-        # supported minor lines have a documented fix; don't extrapolate to newer lines.
-        "windows": (
-            ((8, 0, 0), (10, 6, 22), (10, 7, 0)),
-            ((11, 0, 0), (11, 3, 22), (11, 4, 0)),
-            ((11, 4, 0), (11, 4, 13), (11, 5, 0)),
-        ),
-        "conditions": (),
+        **DRUPAL_NOV_18,
         "sources": ["https://www.drupal.org/sa-core-2026-017"],
+    },
+    "CVE-2026-132166": {
+        **DRUPAL_NOV_18,
+        "sources": ["https://www.drupal.org/sa-core-2026-018"],
     },
     "CVE-2026-119349": {
         "ecosystem": "npm", "package": "next", "published": "2026-11-03",
