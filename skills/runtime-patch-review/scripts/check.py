@@ -79,6 +79,39 @@ ADVISORIES = {
         "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "The trigger also needs a startup diagnostic written to that log, such as an invalid date.timezone or a deprecated session setting, and an early request diagnostic in a fresh worker. Clearing startup diagnostics and restarting all workers removes the demonstrated trigger.",
     },
+    "CVE-2026-129481": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 3, 0)),
+        "branch_parts": 2,
+        "outside": (((0, 0, 0), (8, 3, 0)),),
+        "outside_reason": "The vendor states that PHP 8.2 and earlier do not contain the affected session filename field and are not affected.",
+        "conditions": (),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-g3vh-838c-65v7",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "No configuration setting is documented as necessary, so applicability stays unknown. The demonstrated path needs a fatal error in a callback reached during session cleanup, such as a stream wrapper's stream_close(), and a later request to the same worker. Enabling OPcache is not a reliable mitigation.",
+    },
+    "CVE-2026-129474": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 5, 0)),
+        "branch_parts": 2,
+        "outside": (((8, 2, 0), (8, 5, 0)),),
+        "outside_reason": "The vendor states that PHP 8.2 to 8.4 contain the underlying backtrace error but have no known remote trigger and are outside the affected range.",
+        "conditions": ("fatal_error_backtraces_enabled", "exception_args_included"),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-8mjj-2r7p-4hg2",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "The demonstrated attack also needs a reachable __call() or __callStatic() path and a fatal error while it is entered. On PHP 8.2 to 8.4, PCNTL signal handlers or extensions that inspect interrupted calls can still reach the underlying error.",
+    },
+    "CVE-2026-129182": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 5, 0)),
+        "branch_parts": 2,
+        "outside": (((0, 0, 0), (8, 5, 0)),),
+        "outside_reason": "The vendor states that PHP 8.4 and earlier do not contain the affected global and are not affected.",
+        "conditions": ("fatal_error_backtraces_enabled",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-2fjv-p558-g82m",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "Exploitation also needs a fatal diagnostic during shutdown, such as restoring path-specific memory or output-compression settings, and an early diagnostic in a later request to the same worker.",
+    },
     "CVE-2026-123865": {
         "runtime": "node",
         "fixed": ((22, 23, 5), (24, 22, 3), (26, 13, 1)),
@@ -122,6 +155,9 @@ def _patch_status(profile, inventory):
             if version >= fixed:
                 return "vendor_fix_present", "The upstream release is at or above the documented fix on this branch.", boundary
             return "affected_version", "The upstream release is in the documented affected range on this branch.", boundary
+    # Only branches the vendor explicitly places outside the affected range; any other line stays unknown.
+    if any(start <= version < end for start, end in profile.get("outside", ())):
+        return "outside_affected_range", profile["outside_reason"], None
     return "unknown", "The requested branch is outside the ranges reviewed for this advisory.", None
 
 
