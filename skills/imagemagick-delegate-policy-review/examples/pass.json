@@ -1,0 +1,41 @@
+{
+  "worker": {
+    "id": "image-worker-a",
+    "build": "build-17"
+  },
+  "export": {
+    "worker": "image-worker-a",
+    "build": "build-17",
+    "ref": "effective-export-4",
+    "product": "imagemagick",
+    "version": "7.1.2-36",
+    "origin": "upstream",
+    "version_ref": "worker-build-record-17",
+    "kind": "effective",
+    "coverage": {
+      "loaded": true,
+      "order": true,
+      "files_and_includes": true,
+      "builtins": true,
+      "stealth": true,
+      "runtime": true
+    },
+    "rules": [
+      {
+        "domain": "delegate",
+        "pattern": "demo-render",
+        "rights": "execute"
+      },
+      {
+        "domain": "coder",
+        "pattern": "*",
+        "rights": "all"
+      },
+      {
+        "domain": "delegate",
+        "pattern": "*",
+        "rights": "none"
+      }
+    ]
+  }
+}
