@@ -7,6 +7,14 @@ import sys
 PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13))
 
 ADVISORIES = {
+    "CVE-2026-109618": {
+        "runtime": "php",
+        "fixed": ((8, 2, 35), (8, 3, 36), (8, 4, 27), (8, 5, 12)),
+        "branch_parts": 2,
+        "conditions": ("php_serves_web_requests",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+        "limitation": "PHP identifies all web-serving PHP runtimes for patch review. Memory limits alone cannot establish that the affected behavior is absent.",
+    },
     "CVE-2026-115560": {
         "runtime": "php",
         "fixed": PHP_NOV_19_FIXES,
