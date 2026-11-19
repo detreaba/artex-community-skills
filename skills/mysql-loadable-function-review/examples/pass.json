@@ -1,0 +1,50 @@
+{
+  "policy": {
+    "instance": "db-a",
+    "build": "release-17",
+    "ref": "approval-21",
+    "reviewed": true,
+    "allow": [
+      {
+        "name": "sum_demo",
+        "type": "aggregate",
+        "library": "demo.so"
+      },
+      {
+        "name": "gate_demo",
+        "type": "function",
+        "library": null
+      }
+    ]
+  },
+  "evidence": {
+    "instance": "db-a",
+    "build": "release-17",
+    "ref": "export-42",
+    "snapshot": "snap-42",
+    "server_verified": true,
+    "product": "mysql",
+    "origin": "upstream",
+    "version": "8.4.6",
+    "source": "performance_schema.user_defined_functions",
+    "coverage": "complete",
+    "total": {
+      "snapshot": "snap-42",
+      "ref": "all-rows-42",
+      "unfiltered_rows": 2
+    },
+    "rows": [
+      {
+        "UDF_NAME": "sum_demo",
+        "UDF_TYPE": "aggregate",
+        "UDF_LIBRARY": "demo.so",
+        "UDF_USAGE_COUNT": 0
+      },
+      {
+        "UDF_NAME": "gate_demo",
+        "UDF_TYPE": "function",
+        "UDF_LIBRARY": null
+      }
+    ]
+  }
+}
