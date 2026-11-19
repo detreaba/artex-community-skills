@@ -25,6 +25,20 @@ Optional `applicability` evidence has its own `asset`, `build`, `ref`, and `cond
 | PHP-CGI path handling, CVE-2026-129538 | 19 Nov 2026 | `php_cgi_serves_requests`, `cgi_fix_pathinfo_enabled`, `affected_frontend_path_mapping`. Use the web server mapping and effective CGI configuration to establish whether the documented path inconsistency is possible. Either CGI or FastCGI can invoke the php-cgi binary. A deployment served exclusively by PHP-FPM or the Apache PHP module has `php_cgi_serves_requests=false`. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-5j3f-64r7-f564) |
 | PHP session handling, CVE-2026-115560 | 19 Nov 2026 | `upload_progress_enabled` and `shared_session_serializer_mismatch`. Check whether processes sharing session storage use incompatible serializer settings. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx) |
 | Node.js HTTP/2 resource leak, CVE-2026-123865 | 11 Nov 2026 | `node_handles_http2` refers to the serving Node.js process. An edge proxy can terminate HTTP/2 independently. [Node.js bulletin](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases) |
+| PHP out-of-memory handling, CVE-2026-109618 | 21 Oct 2026 | `php_serves_web_requests` records whether the identified process handles web requests. PHP includes FPM, Apache mod_php, CGI, FrankenPHP and LiteSpeed. A memory-limit setting alone leaves applicability unknown. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) · [PHP release guidance](https://www.php.net/archive/2026.php#2026-10-21-5) |
+
+For example, this synthetic upstream inventory gives `affected_version` and the first fixed PHP 8.4 release, `8.4.27`. Applicability stays `unknown` until the owner supplies evidence of the process's web-serving role. For PHP 8.1 and older, a backport requires its own patch record.
+
+```json
+{
+  "advisory": "CVE-2026-109618",
+  "inventory": {
+    "asset": "training-portal", "build": "release-4", "ref": "runtime-record-4",
+    "runtime": "php", "version": "8.4.26", "origin": "upstream",
+    "serving_process_verified": true
+  }
+}
+```
 
 ## Explain the result
 
