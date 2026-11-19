@@ -1,0 +1,20 @@
+{
+  "advisory": "CVE-2026-123865",
+  "inventory": {
+    "asset": "example-portal",
+    "build": "sample-2",
+    "ref": "inventory-sample-2",
+    "runtime": "node",
+    "version": "24.22.3",
+    "origin": "upstream",
+    "serving_process_verified": true
+  },
+  "applicability": {
+    "asset": "example-portal",
+    "build": "sample-2",
+    "ref": "config-sample-2",
+    "conditions": {
+      "node_handles_http2": true
+    }
+  }
+}

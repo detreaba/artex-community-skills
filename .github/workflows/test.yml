@@ -1,0 +1,23 @@
+name: Test skill packages
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Test and package the skills
+        run: |
+          python3 -B -m unittest discover -s tests
+          for skill in skills/*; do
+            python3 -B -m unittest discover -s "$skill/tests"
+          done
+          python3 -B tools/package_skills.py
+          cd dist
+          sha256sum --check SHA256SUMS

@@ -1,0 +1,15 @@
+{
+  "status": 200,
+  "headers": [
+    [
+      "Content-Type",
+      "text/html; charset=utf-8"
+    ],
+    [
+      "Content-Security-Policy-Report-Only",
+      "default-src 'self'"
+    ]
+  ],
+  "html_head": "<!doctype html><html><head><title>Example</title></head>",
+  "html_complete": true
+}

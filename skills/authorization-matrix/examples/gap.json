@@ -1,0 +1,35 @@
+{
+  "asset": "training-app",
+  "build": "release-7",
+  "policy_ref": "billing-policy-4",
+  "expectations": [
+    {
+      "case": 1,
+      "context": {
+        "role": "billing-reader",
+        "tenant": "other",
+        "ownership": "other",
+        "resource": "invoice",
+        "operation": "read"
+      },
+      "expected": "deny"
+    }
+  ],
+  "observations": [
+    {
+      "case": 1,
+      "context": {
+        "role": "billing-reader",
+        "tenant": "other",
+        "ownership": "other",
+        "resource": "invoice",
+        "operation": "read"
+      },
+      "asset": "training-app",
+      "build": "release-7",
+      "run": "completed",
+      "ref": "ci-74",
+      "actual": "allow"
+    }
+  ]
+}
