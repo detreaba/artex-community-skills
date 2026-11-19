@@ -47,8 +47,15 @@ class RegistrationReview(unittest.TestCase):
         self.assertEqual(out["unresolved"], [{"row": 2, "reason": "provider_identity_unavailable"}])
         del self.policy["allow"][1]["provider"]
         self.assertEqual(self.result()["status"], "pass")
+
+    def test_automatic_registration_outside_filename_only_approval(self):
         self.rows[0]["UDF_LIBRARY"] = None
+        out = self.result()
+        self.assertEqual((out["status"], out["gaps"]), ("gap", [{"row": 1, "reason": "unapproved_registration_class"}]))
+        self.policy["allow"].append(dict(self.policy["allow"][0], library=None, provider="component-A"))
         self.assertEqual(self.result()["status"], "unknown")
+        del self.policy["allow"][-1]["provider"]
+        self.assertEqual(self.result()["status"], "pass")
 
     def test_native_null_is_distinct_from_missing_or_text(self):
         for missing in ("NULL", "null", "", "\\N", 0, [], "../demo.so"):

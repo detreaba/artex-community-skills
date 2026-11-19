@@ -54,7 +54,10 @@ def observation(row, rules):
         return "unresolved", "library_unavailable"
     library = row["UDF_LIBRARY"]
     if library is None:
-        if any(rule["library"] is None and "provider" not in rule for rule in alternatives):
+        automatic = [rule for rule in alternatives if rule["library"] is None]
+        if not automatic:
+            return "gaps", "unapproved_registration_class"
+        if any("provider" not in rule for rule in automatic):
             return "matched", None
         return "unresolved", "provider_identity_unavailable"
     if not library_name(library):
