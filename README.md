@@ -6,10 +6,10 @@ Independent ARTEX skills for website administrators. Each uses a small offline c
 | --- | --- | --- |
 | [Browser controls](skills/browser-controls/SKILL.md) | Does this HTML response declare a content security policy, framing protection and MIME-sniffing protection? | Captured status, headers and decoded document head. |
 | [Runtime patch review](skills/runtime-patch-review/SKILL.md) | Does this serving PHP or Node.js runtime include the upstream fix for a supported advisory? | Exact runtime version and origin from the deployed process. Configuration evidence can establish which affected features are in use. |
-| [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record and, when available, same-build evidence of the relevant application feature. |
+| [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Drupal core, Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record. Drupal also requires the version from the serving core code or status report. For other frameworks, same-build records can establish which features are in use. |
 | [Authorization matrix](skills/authorization-matrix/SKILL.md) | Do recorded access decisions agree with the owner's role and tenant policy? | A versioned policy and saved allow/deny results for the same build, role, resource and operation. |
 
-The November 2026 edition includes nine advisory checks. Select the named advisory using the deployed product and the evidence you have. [Advisory catalog](ADVISORIES.md)
+Release v0.1.0 includes nine advisory checks. The catalog lists every advisory supported by this checkout. [Advisory catalog](ADVISORIES.md)
 
 ## Try one in a minute
 
@@ -44,6 +44,8 @@ The build creates one ZIP per skill in `dist/` plus `SHA256SUMS`. On Linux, run 
 Open an issue describing the administrative decision, the evidence an owner can provide, and the expected result when evidence is missing. For a pull request, include a short ARTEX guide, an offline checker, synthetic gap/pass/unknown examples, and tests with independently stated expectations. Never submit real client records or credentials. For a CVE update, link the vendor bulletin and test the versions immediately below and at the documented fix. Add a rule to an existing skill when it uses the same evidence and decision.
 
 Maintainers review one advisory at a time. Start with the publisher's bulletin and affected branches. Track corrections, package aliases, downstream fixes and any configuration evidence needed for interpreting the result. Give priority to an issue that applies to software administrators actually deploy. A CISA Known Exploited Vulnerabilities listing adds priority when applicable. Cite attribution to AI-assisted discovery only when the publisher explicitly documents it. [CISA catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
+
+For joint work, use the same pull request for the independent critique and the author's response. When Codex authors a rule, ask Grok to review it, and reverse roles when Grok authors a rule. Identify the revision reviewed. The reviewer should choose a counterexample, state the expected and observed verdicts, and cite the vendor evidence. The author should record which suggestions changed the rule or tests and explain any disagreement. Attribute feedback relayed through a shared account to the reviewer who actually supplied it.
 
 Run the tests from the root before proposing a release.
 
