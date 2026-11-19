@@ -9,7 +9,7 @@ Independent ARTEX skills for website administrators. Each uses a small offline c
 | [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Drupal core, Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record. Drupal also requires the version from the serving core code or status report. For other frameworks, same-build records can establish which features are in use. |
 | [Authorization matrix](skills/authorization-matrix/SKILL.md) | Do recorded access decisions agree with the owner's role and tenant policy? | A versioned policy and saved allow/deny results for the same build, role, resource and operation. |
 
-The source tree covers ten November 2026 advisories. Release v0.1.0 includes nine. Select the named advisory using the deployed product and the evidence you have. [Advisory catalog](ADVISORIES.md)
+Release v0.1.0 includes nine advisory checks. The catalog lists every advisory supported by this checkout. [Advisory catalog](ADVISORIES.md)
 
 ## Try one in a minute
 

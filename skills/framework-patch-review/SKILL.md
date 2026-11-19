@@ -53,6 +53,8 @@ Use the installed `drupal/core` package in the active build. Set `deployment_ver
 
 The checker covers stable Composer core releases from Drupal 8 within the bulletin's affected ranges. Legacy installs can require a supported minor or major upgrade to reach the listed fix. Other branches beyond the three reviewed fix lines, prereleases, and distributor backports require their own evidence. The bulletin identifies partial mitigations. This rule evaluates the package and leaves application exposure unknown.
 
+If the serving observation is absent or disagrees with Composer, the checker leaves `version` empty and labels the observations in `version_evidence`. An affected-looking Composer package is recorded in `patch_reason` for prompt follow-up. Use these labels when describing a discrepancy to a client.
+
 ## Interpret the result in ARTEX
 
 Quote the named advisory, package, asset, build and inventory reference. Preserve the two conclusions.

@@ -121,6 +121,10 @@ class FrameworkTests(unittest.TestCase):
                 row = self.check(evidence)
                 self.assertEqual(row["patch_status"], "unknown")
                 self.assertIsNone(row["first_fixed_in_range"])
+                self.assertIsNone(row["version"])
+                self.assertEqual(row["version_evidence"], {"composer": version, "serving_core": None})
+                if version == "11.4.12":
+                    self.assertIn("falls in the affected range", row["patch_reason"])
 
     def test_drupal_fixed_composer_line_and_newer_affected_core_disagree(self):
         evidence = deployment(DRUPAL, "11.3.22", asset="line-cross", build="b1", ref="inv-1",
@@ -129,6 +133,8 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(row["patch_status"], "unknown")
         self.assertIsNone(row["first_fixed_in_range"])
         self.assertEqual(row["applicability"], "unknown")
+        self.assertIsNone(row["version"])
+        self.assertEqual(row["version_evidence"], {"composer": "11.3.22", "serving_core": "11.4.0"})
 
     def test_drupal_packaged_example_has_no_exposure_verdict(self):
         data = json.loads((ROOT / "examples" / f"{DRUPAL}.json").read_bytes())

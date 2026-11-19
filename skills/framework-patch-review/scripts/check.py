@@ -143,20 +143,30 @@ def review(request):
     status, fixed, detail = "unknown", None, "A referenced inventory for the exact package in the deployed build is required."
     applicability, config_ref = "unknown", None
     parsed = None
+    version_evidence = {}
     if identity_matches and all(scope.values()) and inv_ref and inventory.get("deployment_verified") is True:
         applicability, config_ref = feature_status(profile, config, scope)
         parsed = release(inventory.get("version"), profile["ecosystem"])
+        serving = release(inventory.get("serving_core_version"), "composer") if package == "drupal/core" else None
+        if package == "drupal/core" and parsed != serving:
+            version_evidence = {"version_evidence": {"composer": ".".join(map(str, parsed)) if parsed else None,
+                                                     "serving_core": ".".join(map(str, serving)) if serving else None}}
         if inventory.get("origin") != "upstream":
             detail = "The supplied package origin requires separate vendor or backport evidence."
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
-        elif package == "drupal/core" and release(inventory.get("serving_core_version"), "composer") != parsed:
-            detail = "A matching version from the serving core code or status report is required. Reconcile the deployment records."
+        elif version_evidence:
+            if classify(profile, parsed)[0] == "affected_version":
+                detail = "The Composer package falls in the affected range. Prioritize checking the conflicting or missing serving core observation."
+            else:
+                detail = "The Composer and serving core observations do not establish a matching release. Reconcile the deployment records."
         else:
             status, fixed, detail = classify(profile, parsed)
+        if version_evidence:
+            parsed = None
     return {
         "advisory": advisory, "package": profile["package"], "ecosystem": profile["ecosystem"],
-        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else None,
+        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else None, **version_evidence,
         "patch_status": status, "patch_reason": detail, "first_fixed_in_range": fixed,
         "applicability": applicability, "evidence_refs": {"inventory": inv_ref, "configuration": config_ref},
         "published": profile["published"], "reviewed": REVIEWED, "sources": profile["sources"],
