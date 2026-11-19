@@ -481,9 +481,30 @@ class PackageAdvisoryTests(unittest.TestCase):
                                            {"foo": "no_matching_advisory", "bar": "affected"}),
             "tie keeps the active copy": (copy("2026-11-01T00:00:00Z"),
                                           copy("2026-11-01T00:00:00Z", withdrawn="2026-11-01T00:00:00Z"), {"foo": "affected"}),
-            "tie keeps the most severe": (copy("2026-11-01T00:00:00Z", fixed="1.0.0"), copy("2026-11-01T01:00:00+01:00"),
+            "tie keeps the most severe": (copy("2026-11-01T00:00:00.5Z", fixed="1.0.0"), copy("2026-11-01T00:00:00.50Z"),
                                           {"foo": "affected"}),
+            # Codex, PR #9: digits beyond the ninth still order, up to the 64-character bound.
+            "tenth fraction digit": (copy("2026-11-01T00:00:00.1234567891Z"),
+                                     copy("2026-11-01T00:00:00.1234567892Z", withdrawn="2026-11-01T00:00:00Z"),
+                                     {"foo": "no_matching_advisory"}),
+            "64-character bound": (copy("2026-11-01T00:00:00." + "1" * 42 + "1Z"),
+                                   copy("2026-11-01T00:00:00." + "1" * 42 + "2Z", withdrawn="2026-11-02T00:00:00Z"),
+                                   {"foo": "no_matching_advisory"}),
+            # A modified time outside the schema's form is not read, so every copy is evaluated.
+            "over the bound": (copy("2026-11-01T00:00:00." + "1" * 43 + "1Z"),
+                               copy("2026-11-01T00:00:00." + "1" * 43 + "2Z", withdrawn="2026-11-02T00:00:00Z"),
+                               {"foo": "affected"}),
+            "offset is not read": (copy("2026-11-01T00:00:00Z"),
+                                   copy("2026-11-02T01:00:00+01:00", withdrawn="2026-11-02T00:00:00Z"), {"foo": "affected"}),
+            "impossible leap second in modified": (copy("2026-11-01T00:00:00Z"),
+                                                   copy("2026-11-02T12:34:60Z", withdrawn="2026-11-02T00:00:00Z"),
+                                                   {"foo": "affected"}),
         }
+        self.assertEqual(len("2026-11-01T00:00:00." + "1" * 43 + "Z"), 64)
+        order = [checker.osv_time(v) for v in ("2016-12-31T23:59:59.9Z", "2016-12-31T23:59:60Z",
+                                                "2016-12-31T23:59:60.5Z", "2017-01-01T00:00:00Z")]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(len(set(order)), 4)
         with tempfile.TemporaryDirectory() as tmp:
             for label, (older, newer, want) in cases.items():
                 first = self.write_zip(tmp, "first.zip", [anchor, older])
@@ -500,15 +521,21 @@ class PackageAdvisoryTests(unittest.TestCase):
             self.assertEqual(out["packages"][0]["status"], "no_matching_advisory")
 
     def test_malformed_withdrawals_leave_the_record_active(self):
-        values = ["not-a-date", True, {"x": 1}, ["2026-01-01T00:00:00Z"], "false", "2026-13-01T00:00:00Z"]
+        # Codex, PR #9: an impossible leap second must not read as a withdrawal time.
+        values = ["not-a-date", True, {"x": 1}, ["2026-01-01T00:00:00Z"], "false", "2026-13-01T00:00:00Z", "", None,
+                  "2025-02-06T12:34:60Z", "2017-06-30T23:59:60Z", "2026-11-01T00:00:00+00:00", "2026-11-01t00:00:00z"]
         records = [dict(rec(f"W-{i}", "npm", f"w{i}", (SEMVER, [{"introduced": "0"}])), withdrawn=v)
                    for i, v in enumerate(values)]
         # No clock is read, so a well-formed withdrawal is honoured even when it is dated in the future.
-        future = dict(rec("W-future", "npm", "wfuture", (SEMVER, [{"introduced": "0"}])), withdrawn="2999-01-01T00:00:00Z")
-        packages = [pkg("npm", f"w{i}", "1.0.0") for i in range(len(values))] + [pkg("npm", "wfuture", "1.0.0")]
-        out = self.status(request(packages, covers=("npm",), advisories=records + [future, ADVISORIES[0]]))
-        self.assertEqual([p["status"] for p in out["packages"]], ["affected"] * len(values) + ["no_matching_advisory"])
-        self.assertEqual((out["snapshots"][0]["withdrawn_ignored"], out["snapshots"][0]["withdrawn"]), (len(values), 1))
+        # A real leap second (IANA leap-seconds.list) is well formed.
+        honoured = [dict(rec(f"W-{name}", "npm", f"w{name}", (SEMVER, [{"introduced": "0"}])), withdrawn=when)
+                    for name, when in (("future", "2999-01-01T00:00:00Z"), ("leap", "2016-12-31T23:59:60Z"))]
+        packages = ([pkg("npm", f"w{i}", "1.0.0") for i in range(len(values))]
+                    + [pkg("npm", "wfuture", "1.0.0"), pkg("npm", "wleap", "1.0.0")])
+        out = self.status(request(packages, covers=("npm",), advisories=records + honoured + [ADVISORIES[0]]))
+        self.assertEqual([p["status"] for p in out["packages"]],
+                         ["affected"] * len(values) + ["no_matching_advisory"] * 2)
+        self.assertEqual((out["snapshots"][0]["withdrawn_ignored"], out["snapshots"][0]["withdrawn"]), (len(values), 2))
 
     def test_events_that_share_a_version(self):
         # Real shapes: 20 DRUPAL-CONTRIB ranges with introduced == last_affected, and MAL-2026-3461/3463 with two

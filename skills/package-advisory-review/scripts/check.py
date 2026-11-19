@@ -18,6 +18,7 @@ import sys
 import zipfile
 import zlib
 from datetime import datetime, timedelta, timezone
+from fractions import Fraction
 from functools import cmp_to_key
 from pathlib import Path
 
@@ -400,32 +401,42 @@ def _short(value, limit=64):
     return value if isinstance(value, str) and len(value) <= limit else None
 
 
-_RFC3339 = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt ]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?"
-                      r"([Zz]|[+-][0-9]{2}:[0-9]{2})")
+# The OSV schema defines one timestamp form for `modified` and `withdrawn`: UTC, upper-case T and Z,
+# and any number of fraction digits. A value in any other form is not read.
+_OSV_TIME = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?Z")
+# Second 60 exists only at 23:59:60Z on these dates. Source: IANA leap-seconds.list
+# (https://data.iana.org/time-zones/tzdb/leap-seconds.list), updated 2026-07-06 and valid until
+# 2027-06-28. No leap second has been inserted since 2016-12-31.
+_LEAP_SECOND_DATES = frozenset({
+    (1972, 6, 30), (1972, 12, 31), (1973, 12, 31), (1974, 12, 31), (1975, 12, 31), (1976, 12, 31),
+    (1977, 12, 31), (1978, 12, 31), (1979, 12, 31), (1981, 6, 30), (1982, 6, 30), (1983, 6, 30),
+    (1985, 6, 30), (1987, 12, 31), (1989, 12, 31), (1990, 12, 31), (1992, 6, 30), (1993, 6, 30),
+    (1994, 6, 30), (1995, 12, 31), (1997, 6, 30), (1998, 12, 31), (2005, 12, 31), (2008, 12, 31),
+    (2012, 6, 30), (2015, 6, 30), (2016, 12, 31)})
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
-def rfc3339_ns(value):
-    """Nanoseconds since 1970 for an RFC 3339 timestamp, or None when the value is not one.
-    Fractions are kept to the nanosecond, so '...00Z' and '...00.500Z' order correctly."""
-    m = _RFC3339.fullmatch(value) if isinstance(value, str) and len(value) <= 64 else None
+def osv_time(value):
+    """An exactly ordered key for an OSV timestamp, or None when the value is not one.
+
+    The key is (whole seconds since 1970, leap-second flag, fraction). Fractions keep every digit
+    within the 64-character bound, so a later time always orders later, and 23:59:60Z orders after
+    23:59:59Z and before the next day's 00:00:00Z.
+    """
+    m = _OSV_TIME.fullmatch(value) if isinstance(value, str) and len(value) <= 64 else None
     if m is None:
         return None
     year, month, day, hour, minute, second = (int(x) for x in m.groups()[:6])
-    zone, offset = m.group(8), 0
-    if zone not in ("Z", "z"):
-        hours, minutes = int(zone[1:3]), int(zone[4:6])
-        if hours > 23 or minutes > 59:
-            return None
-        offset = (hours * 60 + minutes) * 60 * (1 if zone[0] == "+" else -1)
+    leap = second == 60
+    if second > 60 or (leap and not (hour == 23 and minute == 59 and (year, month, day) in _LEAP_SECOND_DATES)):
+        return None
     try:
-        moment = datetime(year, month, day, hour, minute, min(second, 59), tzinfo=timezone.utc)
+        moment = datetime(year, month, day, hour, minute, 59 if leap else second, tzinfo=timezone.utc)
     except ValueError:
         return None
-    if second > 60:
-        return None
-    seconds = (moment - _EPOCH) // timedelta(seconds=1) - offset + (second == 60)
-    return seconds * 1_000_000_000 + int((m.group(7) or "")[:9].ljust(9, "0"))
+    digits = m.group(7) or ""
+    fraction = Fraction(int(digits), 10 ** len(digits)) if digits else Fraction(0)
+    return ((moment - _EPOCH) // timedelta(seconds=1), int(leap), fraction)
 
 
 def valid_record(rec):
@@ -485,14 +496,15 @@ class Snapshot:
         stats["records"] += 1
         for fam in {family_of(e.get("package", {}).get("ecosystem", "")) for e in rec.get("affected", [])} - {None}:
             stats["family_records"][fam] = stats["family_records"].get(fam, 0) + 1
-        # The schema makes "withdrawn" an RFC 3339 time. Any other value is ignored and counted,
-        # so the record stays active. No clock is read: a well-formed time is always honoured.
-        withdrawn = rec.get("withdrawn")
-        withdrawn_at = rfc3339_ns(withdrawn) if withdrawn is not None and withdrawn != "" else None
-        if withdrawn is not None and withdrawn != "" and withdrawn_at is None:
+        # A present "withdrawn" value that is not a timestamp in the schema's form (including an
+        # impossible leap second) is ignored and counted, so the record stays active. No clock is
+        # read: a well-formed time is always honoured.
+        withdrawn_at = osv_time(rec.get("withdrawn")) if "withdrawn" in rec else None
+        if "withdrawn" in rec and withdrawn_at is None:
             stats["withdrawn_ignored"] += 1
         active = withdrawn_at is None
-        modified_at = rfc3339_ns(rec.get("modified"))
+        # An unreadable "modified" leaves this copy unordered, so resolve() evaluates every copy.
+        modified_at = osv_time(rec.get("modified"))
         self.copies.setdefault(rec["id"], []).append((modified_at, active, rec))
         if not active:
             stats["withdrawn"] += 1
@@ -502,8 +514,9 @@ class Snapshot:
                 kinds = [next(iter(event)) for event in rng.get("events", [])]
                 if "introduced" not in kinds or ("fixed" in kinds and "last_affected" in kinds):
                     stats["damaged_ranges"] += 1
-        if modified_at is not None and modified_at > stats["newest_modified_ns"]:
-            stats["newest_modified_ns"], stats["newest_modified"] = modified_at, rec["modified"]
+        newest = stats["newest_modified_at"]
+        if modified_at is not None and (newest is None or modified_at > newest):
+            stats["newest_modified_at"], stats["newest_modified"] = modified_at, rec["modified"]
         for entry in rec.get("affected", []):
             eco = entry.get("package", {}).get("ecosystem", "")
             family = family_of(eco)
@@ -547,7 +560,7 @@ class Snapshot:
     def _new_stats(family, source, declares):
         return {"family": family, "source": source, "sha256": None, "records": 0, "withdrawn": 0,
                 "withdrawn_ignored": 0, "invalid": 0, "unreadable": 0, "oversized": 0, "skipped": 0,
-                "damaged_ranges": 0, "newest_modified": "", "newest_modified_ns": -1, "family_records": {},
+                "damaged_ranges": 0, "newest_modified": "", "newest_modified_at": None, "family_records": {},
                 "declares": set(declares)}
 
     def _store(self, raw, stats):
@@ -631,7 +644,7 @@ class Snapshot:
             stats["newest_modified"] = stats["newest_modified"] or None
             stats["family_records"] = dict(sorted(stats["family_records"].items()))
             stats.pop("declares", None)
-            stats.pop("newest_modified_ns", None)
+            stats.pop("newest_modified_at", None)
             if family == "Debian":
                 stats["debian_tracker_records"] = dict(sorted(self.tracker.items()))
             self.sources.append(stats)

@@ -45,8 +45,11 @@ The examples embed a small synthetic `snapshot`; real reviews pass the export fi
   - larger than 8 MiB (`oversized`).
 - Records whose ranges break the OSV schema are counted in `damaged_ranges`. They make only the packages they name `unknown`.
 - The checker can't tell a partial download from the full export, so use the official `all.zip` and cite its SHA-256.
-- **Duplicates.** When an advisory ID appears more than once, for example in two exports or in an inline snapshot and an export, the copy with the newest `modified` time is used, whatever the load order. A later withdrawal therefore removes the advisory, and a newer copy that no longer names a package removes that package's match. If the newest copies share a time, every one of them is evaluated and the most severe result is reported, so an active copy outweighs a withdrawn copy with the same time.
-- **Withdrawals.** `withdrawn` must be an RFC 3339 time. Any other value is counted in `withdrawn_ignored`, and the record stays active. The checker reads no clock, so it also honours a withdrawal dated in the future.
+- **Duplicates.** When an advisory ID appears more than once, for example in two exports or in an inline snapshot and an export, the copy with the newest `modified` time is used, whatever the load order. A later withdrawal therefore removes the advisory, and a newer copy that no longer names a package removes that package's match. If the newest copies share a time, or any copy's `modified` time can't be read, every candidate copy is evaluated and the most severe result is reported. So an active copy outweighs a withdrawn copy with the same time.
+- **Timestamps.** `modified` and `withdrawn` are read only in the OSV schema's form, `YYYY-MM-DDTHH:MM:SS[.fraction]Z` in UTC, up to 64 characters.
+  - Fractions compare exactly, digit for digit.
+  - Second 60 counts only at 23:59:60Z on a leap-second date in IANA's `leap-seconds.list`.
+- **Withdrawals.** A `withdrawn` value that isn't such a timestamp is counted in `withdrawn_ignored`, and the record stays active. That includes an offset, a lower-case `t` or `z`, or an impossible leap second. The checker reads no clock, so it also honours a withdrawal dated in the future.
 
 Two rules keep results conservative:
 - **Composer versions** are compared under Composer's ordering and under OSV's own Packagist ordering, which is PHP's `version_compare`. The two disagree on short forms and prereleases: OSV sorts `8.4` before `8.4.0`, and `1.10.0-alpha` after `1.10`. When they disagree, that record is inconclusive.
