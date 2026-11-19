@@ -521,6 +521,7 @@ class PackageAdvisoryTests(unittest.TestCase):
         for eco, name, version, want in (("Packagist", "drupal/img", "1.0.0", "affected"),
                                          ("Packagist", "drupal/img", "0.9.0", "no_matching_advisory"),
                                          ("Packagist", "drupal/img", "1.0.1", "unknown"),
+                                         ("Packagist", "drupal/img", "2.0.0", "unknown"),
                                          ("npm", "@scope/hist", "1.161.10", "affected"),
                                          ("npm", "@scope/hist", "1.161.14", "no_matching_advisory"),
                                          ("npm", "@scope/hist", "1.100.0", "no_matching_advisory"),
@@ -536,6 +537,9 @@ class PackageAdvisoryTests(unittest.TestCase):
         for eco, name, version, want in (("npm", "total4", "12.0.0", "unknown"),
                                          ("Packagist", "symfony/symfony", "4.4.0", "no_matching_advisory"),
                                          ("Packagist", "symfony/symfony", "2.2-dev", "affected"),
+                                         # An installed development version is itself outside the release
+                                         # syntax, so it reads unknown rather than clear (Fable, PR #9).
+                                         ("Packagist", "symfony/symfony", "2.2.x-dev", "unknown"),
                                          ("Packagist", "acme/odd", "1.0.0", "unknown")):
             with self.subTest(name=name, version=version):
                 self.assertEqual(self.one(eco, name, version, covers=("npm", "Packagist"), advisories=records)["status"], want)

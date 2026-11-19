@@ -45,7 +45,7 @@ The examples embed a small synthetic `snapshot`; real reviews pass the export fi
   - larger than 8 MiB (`oversized`).
 - Records whose ranges break the OSV schema are counted in `damaged_ranges`. They make only the packages they name `unknown`.
 - The checker can't tell a partial download from the full export, so use the official `all.zip` and cite its SHA-256.
-- **Duplicates.** When an advisory ID appears more than once, for example in two exports or in an inline snapshot and an export, the copy with the newest `modified` time is used, whatever the load order. A later withdrawal therefore removes the advisory. If the newest copies share a time, every one of them is evaluated and the most severe result is reported, so an active copy outweighs a withdrawn copy with the same time.
+- **Duplicates.** When an advisory ID appears more than once, for example in two exports or in an inline snapshot and an export, the copy with the newest `modified` time is used, whatever the load order. A later withdrawal therefore removes the advisory, and a newer copy that no longer names a package removes that package's match. If the newest copies share a time, every one of them is evaluated and the most severe result is reported, so an active copy outweighs a withdrawn copy with the same time.
 - **Withdrawals.** `withdrawn` must be an RFC 3339 time. Any other value is counted in `withdrawn_ignored`, and the record stays active. The checker reads no clock, so it also honours a withdrawal dated in the future.
 
 Two rules keep results conservative:

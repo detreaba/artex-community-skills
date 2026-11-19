@@ -306,6 +306,9 @@ def evaluate_range(rng, version, ordering, ceiling_clear=False):
         return "inconclusive", "The range has an introduced and a fixed event at the same version.", []
     outcomes = {_walk(order, v, cmp) for order in orders}
     if len(outcomes) > 1:
+        # The orders only disagree above an introduced == last_affected version, which is the ceiling case.
+        if not ceiling_clear:
+            return "inconclusive", "Above a last_affected ceiling and no fixed version is published.", []
         return "inconclusive", "Events that share a version give different results depending on their order.", []
     vulnerable, setter = outcomes.pop()
     fixed_above = [raw for key, kind, raw in events if kind == "fixed" and cmp(key, v) > 0]
