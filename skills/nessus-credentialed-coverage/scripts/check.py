@@ -92,8 +92,11 @@ def classify(root, request):
         if fields[0].lower() == "no":
             return "reported_no", "Nessus recorded a negative credentialed-check flag for this host."
         if DIRECT_YES.fullmatch(fields[0]):
-            if any(i.get("pluginID") in ("21745", "110695") for i in hosts[0].findall("ReportItem")):
-                return "unknown", "This host also has a result reporting OS patch assessment unavailable."
+            plugin_ids = {item.get("pluginID") for item in hosts[0].findall("ReportItem")}
+            blockers = sorted(plugin_ids.intersection({"21745", "110695"}))
+            if blockers:
+                return "unknown", ("Plugin 19506 reports credentialed checks=yes. OS patch assessment was "
+                                   "unavailable according to " + ", ".join(blockers) + ".")
             return "reported_yes", "Nessus recorded an affirmative credentialed-check flag for this OS host."
     return "unknown", "A single recognized OS credentialed-check value is required."
 

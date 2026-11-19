@@ -69,7 +69,10 @@ class CoverageTests(unittest.TestCase):
         for plugin in ("21745", "110695"):
             failure = f'<ReportItem pluginID="{plugin}"/>'
             with self.subTest(plugin=plugin):
-                self.assertEqual(self.check(xml(report(host(item("yes") + failure))))["status"], "unknown")
+                row = self.check(xml(report(host(item("yes") + failure))))
+                self.assertEqual(row["status"], "unknown")
+                self.assertIn("credentialed checks=yes", row["reason"])
+                self.assertIn(plugin, row["reason"])
                 self.assertEqual(self.check(xml(report(host(item("yes")) + host(failure, "other"))))["status"],
                                  "reported_yes")
 
