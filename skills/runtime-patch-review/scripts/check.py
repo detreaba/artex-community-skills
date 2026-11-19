@@ -4,14 +4,32 @@ import re
 import sys
 
 
+PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13))
+
 ADVISORIES = {
     "CVE-2026-115560": {
         "runtime": "php",
-        "fixed": ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13)),
+        "fixed": PHP_NOV_19_FIXES,
         "branch_parts": 2,
         "conditions": ("upload_progress_enabled", "shared_session_serializer_mismatch"),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx",
         "limitation": "PHP configurations sharing session storage require review even after the upstream update.",
+    },
+    "CVE-2026-129292": {
+        "runtime": "php",
+        "fixed": PHP_NOV_19_FIXES,
+        "branch_parts": 2,
+        "conditions": ("fpm_status_enabled", "request_metadata_reaches_pool", "full_status_rendered_as_html"),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-3mg3-cr28-46gc",
+        "limitation": "Review how the affected pool records request metadata and how operators or tools render its status. A private status page alone does not settle this check.",
+    },
+    "CVE-2026-129538": {
+        "runtime": "php",
+        "fixed": PHP_NOV_19_FIXES,
+        "branch_parts": 2,
+        "conditions": ("php_cgi_serves_requests", "cgi_fix_pathinfo_enabled", "affected_frontend_path_mapping"),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-5j3f-64r7-f564",
+        "limitation": "The documented condition applies to the php-cgi binary and particular web server mappings. PHP-FPM and the Apache PHP module are outside its scope.",
     },
     "CVE-2026-123865": {
         "runtime": "node",

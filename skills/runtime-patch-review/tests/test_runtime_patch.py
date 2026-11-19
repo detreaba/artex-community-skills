@@ -13,13 +13,15 @@ review = checker.review
 
 
 PHP = "CVE-2026-115560"
+PHP_FPM = "CVE-2026-129292"
+PHP_CGI = "CVE-2026-129538"
 NODE = "CVE-2026-123865"
 
 
 def inventory(advisory, version, **changes):
     inv = {"asset": "portal-a", "build": "release-7", "ref": "serving-inventory-12",
            "origin": "upstream", "version": version, "serving_process_verified": True,
-           "runtime": "php" if advisory == PHP else "node"}
+           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI) else "node"}
     return {"advisory": advisory, "inventory": {**inv, **changes}}
 
 
@@ -29,7 +31,8 @@ def config(**conditions):
 
 class RuntimePatchTests(unittest.TestCase):
     def test_each_documented_upstream_boundary(self):
-        boundaries = {PHP: ["8.2.36", "8.3.37", "8.4.28", "8.5.13"],
+        php_boundaries = ["8.2.36", "8.3.37", "8.4.28", "8.5.13"]
+        boundaries = {PHP: php_boundaries, PHP_FPM: php_boundaries, PHP_CGI: php_boundaries,
                       NODE: ["22.23.5", "24.22.3", "26.13.1"]}
         for advisory, fixes in boundaries.items():
             for fixed in fixes:
@@ -93,6 +96,32 @@ class RuntimePatchTests(unittest.TestCase):
             out = review({**inventory(PHP, "8.4.28"), "applicability": config(**fields)})
             self.assertEqual(out["applicability"], expected)
             self.assertEqual(out["evidence_refs"]["configuration"], "config-review-7")
+
+    def test_fpm_and_cgi_require_advisory_specific_configuration(self):
+        required = {
+            PHP_FPM: ("fpm_status_enabled", "request_metadata_reaches_pool", "full_status_rendered_as_html"),
+            PHP_CGI: ("php_cgi_serves_requests", "cgi_fix_pathinfo_enabled", "affected_frontend_path_mapping"),
+        }
+        for advisory, names in required.items():
+            enabled = dict.fromkeys(names, True)
+            for flags, status in [
+                (enabled, "conditions_present"),
+                ({names[0]: True, names[1]: True}, "unknown"),
+                ({**enabled, names[-1]: None}, "unknown"),
+                ({names[0]: False}, "conditions_absent"),
+            ]:
+                with self.subTest(advisory=advisory, flags=flags):
+                    request = {**inventory(advisory, "8.5.12"), "applicability": config(**flags)}
+                    result = review(request)
+                    self.assertEqual((result["patch_status"], result["applicability"]), ("affected_version", status))
+            with self.subTest(advisory=advisory):
+                request = {**inventory(advisory, "8.4.28"), "applicability": {**config(**enabled), "build": "elsewhere"}}
+                result = review(request)
+                self.assertEqual((result["patch_status"], result["applicability"]), ("vendor_fix_present", "unknown"))
+                for origin, version in (("distribution", "8.5.13"), ("upstream", "8.6.0"), ("upstream", "8.5.13-rc1")):
+                    self.assertEqual(review(inventory(advisory, version, origin=origin))["patch_status"], "unknown")
+                with self.assertRaises(ValueError):
+                    review({**inventory(advisory, "8.5.12"), "applicability": config(upload_progress_enabled=True)})
 
     def test_wrong_scope_or_missing_reference_invalidates_configuration(self):
         configuration = config(node_handles_http2=True)

@@ -1,12 +1,15 @@
 # ARTEX Community Skills
 
-Three independent skills for website administrators. Each uses a small offline checker to answer a specific security question from evidence you already have. Each download includes the ARTEX guide, the checker, synthetic examples and tests. The checkers use the Python 3.9+ standard library.
+Independent ARTEX skills for website administrators. Each uses a small offline checker to answer a specific security question from evidence you already have. Each download includes the ARTEX guide, the checker, synthetic examples and tests. The checkers use the Python 3.9+ standard library.
 
 | Skill | Question it answers | Evidence you need |
 | --- | --- | --- |
 | [Browser controls](skills/browser-controls/SKILL.md) | Does this HTML response declare a content security policy, framing protection and MIME-sniffing protection? | Captured status, headers and decoded document head. |
 | [Runtime patch review](skills/runtime-patch-review/SKILL.md) | Does this serving PHP or Node.js runtime include the upstream fix for a supported advisory? | Exact runtime version and origin from the deployed process. Configuration evidence can establish which affected features are in use. |
+| [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record and, when available, same-build evidence of the relevant application feature. |
 | [Authorization matrix](skills/authorization-matrix/SKILL.md) | Do recorded access decisions agree with the owner's role and tenant policy? | A versioned policy and saved allow/deny results for the same build, role, resource and operation. |
+
+The November 2026 edition includes nine advisory checks. Select the named advisory using the deployed product and the evidence you have. [Advisory catalog](ADVISORIES.md)
 
 ## Try one in a minute
 
@@ -21,7 +24,7 @@ Read the rule for CSP (`WEB-CSP-01`), then repeat with `examples/pass.json` and 
 
 ## Use a skill in ARTEX
 
-1. Choose the ZIP named after the skill in **GitHub Releases**, or build it from source with the command below. ARTEX imports one skill per archive.
+1. Choose the ZIP named after the skill in [GitHub Releases](https://github.com/detreaba/artex-community-skills/releases), or build it from source with the command below. ARTEX imports one skill per archive.
 2. In **System → Skills**, select **Upload archive** and upload that ZIP. Open the installed skill and enable it for operator **Chat** under the agent visibility settings. If your installation already has a skill with that name, compare the guides before replacing it.
 3. Run the bundled checker locally on a redacted evidence file. From the unpacked skill folder, use `python3 scripts/check.py < evidence.json`.
 4. In operator Chat, ask it to load the skill by name. Paste the checker result and a reference for the inspected build, page or test run. For example, “Load browser-controls. Explain these three results for the captured homepage and list what remains unknown.” Treat a fixture result as a demonstration. Use the client's own records for a client finding.
@@ -34,11 +37,13 @@ The public guides can interpret pasted checker results in a fresh ARTEX installa
 python3 tools/package_skills.py
 ```
 
-The build creates one ZIP per skill in `dist/` plus `SHA256SUMS`. On Linux, run `(cd dist && sha256sum -c SHA256SUMS)` to check the archives against the manifest. A release maintainer can attach all three ZIPs and the checksum file to a tagged GitHub Release. [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
+The build creates one ZIP per skill in `dist/` plus `SHA256SUMS`. On Linux, run `(cd dist && sha256sum -c SHA256SUMS)` to check the archives against the manifest. A release maintainer can attach the skill ZIPs and the checksum file to a tagged GitHub Release. [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
 
 ## Contribute a skill or advisory
 
 Open an issue describing the administrative decision, the evidence an owner can provide, and the expected result when evidence is missing. For a pull request, include a short ARTEX guide, an offline checker, synthetic gap/pass/unknown examples, and tests with independently stated expectations. Never submit real client records or credentials. For a CVE update, link the vendor bulletin and test the versions immediately below and at the documented fix. Add a rule to an existing skill when it uses the same evidence and decision.
+
+Maintainers review one advisory at a time. Start with the publisher's bulletin and affected branches. Track corrections, package aliases, downstream fixes and any configuration evidence needed for interpreting the result. Give priority to an issue that applies to software administrators actually deploy. A CISA Known Exploited Vulnerabilities listing adds priority when applicable. Cite attribution to AI-assisted discovery only when the publisher explicitly documents it. [CISA catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
 
 Run the tests from the root before proposing a release.
 

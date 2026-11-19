@@ -1,0 +1,13 @@
+{
+  "advisory": "CVE-2026-118514",
+  "inventory": {
+    "asset": "training-portal",
+    "build": "release-2",
+    "ref": "workstation-lock",
+    "ecosystem": "composer",
+    "package": "symfony/http-foundation",
+    "version": "v7.4.23",
+    "origin": "upstream",
+    "deployment_verified": false
+  }
+}

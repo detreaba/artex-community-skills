@@ -17,12 +17,14 @@ python3 scripts/check.py < examples/gap.json
 
 For a real review, supply one supported `advisory` and an `inventory` object with `asset`, `build`, `ref`, `runtime` (`php` or `node`), `version`, `origin`, and `serving_process_verified`. Set that last field true only when evidence identifies the running process. Use `upstream` only when the inventory establishes the release's origin. A distribution or custom build requires its vendor's own package and backport information. Use short redacted aliases for these references. The checker reads stdin and makes no network requests.
 
-Optional `applicability` evidence has its own `asset`, `build`, `ref`, and `conditions`. Match the asset and build to the inventory. Supply booleans only for conditions that a configuration review establishes. The initial rules cover the following advisories.
+Optional `applicability` evidence has its own `asset`, `build`, `ref`, and `conditions`. Match the asset and build to the inventory. Supply booleans only for conditions that a configuration review establishes.
 
-| Advisory | Configuration evidence |
-| --- | --- |
-| PHP session handling, CVE-2026-115560 | `upload_progress_enabled` and `shared_session_serializer_mismatch`. Check whether processes sharing session storage use incompatible serializer settings. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx) |
-| Node.js HTTP/2 resource leak, CVE-2026-123865 | `node_handles_http2` refers to the serving Node.js process. An edge proxy can terminate HTTP/2 independently. [Node.js bulletin](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases) |
+| Advisory | Published | Configuration evidence |
+| --- | --- | --- |
+| PHP-FPM status display, CVE-2026-129292 | 19 Nov 2026 | `fpm_status_enabled`, `request_metadata_reaches_pool`, `full_status_rendered_as_html`. Check whether untrusted request metadata can reach the fields displayed in this pool's full status output and whether anyone renders it as HTML. Access restrictions on the status page alone leave these questions open. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-3mg3-cr28-46gc) |
+| PHP-CGI path handling, CVE-2026-129538 | 19 Nov 2026 | `php_cgi_serves_requests`, `cgi_fix_pathinfo_enabled`, `affected_frontend_path_mapping`. Use the web server mapping and effective CGI configuration to establish whether the documented path inconsistency is possible. Either CGI or FastCGI can invoke the php-cgi binary. A deployment served exclusively by PHP-FPM or the Apache PHP module has `php_cgi_serves_requests=false`. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-5j3f-64r7-f564) |
+| PHP session handling, CVE-2026-115560 | 19 Nov 2026 | `upload_progress_enabled` and `shared_session_serializer_mismatch`. Check whether processes sharing session storage use incompatible serializer settings. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx) |
+| Node.js HTTP/2 resource leak, CVE-2026-123865 | 11 Nov 2026 | `node_handles_http2` refers to the serving Node.js process. An edge proxy can terminate HTTP/2 independently. [Node.js bulletin](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases) |
 
 ## Explain the result
 

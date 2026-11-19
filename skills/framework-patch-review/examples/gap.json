@@ -1,0 +1,22 @@
+{
+  "advisory": "CVE-2026-119349",
+  "inventory": {
+    "asset": "training-portal",
+    "build": "release-2",
+    "ref": "deployed-inventory-2",
+    "origin": "upstream",
+    "deployment_verified": true,
+    "ecosystem": "npm",
+    "package": "next",
+    "version": "16.4.4"
+  },
+  "applicability": {
+    "asset": "training-portal",
+    "build": "release-2",
+    "ref": "feature-review-2",
+    "conditions": {
+      "app_router": true,
+      "binary_arguments_to_use_cache": true
+    }
+  }
+}
