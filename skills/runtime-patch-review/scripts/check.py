@@ -52,6 +52,33 @@ ADVISORIES = {
         "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "The documented condition applies to the php-cgi binary and particular web server mappings. PHP-FPM and the Apache PHP module are outside its scope.",
     },
+    "CVE-2026-126714": {
+        "runtime": "php",
+        "fixed": PHP_NOV_19_FIXES,
+        "branch_parts": 2,
+        "conditions": ("session_files_handler_in_use",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-fm2m-fjf5-v3cp",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "Only PHP's built-in files session handler is affected. Exploitation also needs attacker-influenced session data, an interrupted write and a deserialization gadget in the application, which this check does not establish.",
+    },
+    "CVE-2026-129289": {
+        "runtime": "php",
+        "fixed": PHP_NOV_19_FIXES,
+        "branch_parts": 2,
+        "conditions": ("backend_connection_reuse_enabled",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-qc49-hpvq-g2w6",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "Exploitation also needs an application path that opens php://input without reading it to the end. Code execution is established for PHP-FPM; for LSAPI the advisory establishes request desynchronisation.",
+    },
+    "CVE-2026-129496": {
+        "runtime": "php",
+        "fixed": PHP_NOV_19_FIXES,
+        "branch_parts": 2,
+        "conditions": ("php_error_log_to_file",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-gr4f-wgx5-jpfv",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "The trigger also needs a startup diagnostic written to that log, such as an invalid date.timezone or a deprecated session setting, and an early request diagnostic in a fresh worker. Clearing startup diagnostics and restarting all workers removes the demonstrated trigger.",
+    },
     "CVE-2026-123865": {
         "runtime": "node",
         "fixed": ((22, 23, 5), (24, 22, 3), (26, 13, 1)),
@@ -106,6 +133,10 @@ def _conditions(profile, config, scope):
     flags = _fields(config.get("conditions", {}), fields)
     if any(v is not None and type(v) is not bool for v in flags.values()):
         raise ValueError("Configuration values must be boolean or null.")
+    if not fields:
+        # all() over no conditions is true. A profile without documented conditions gives no
+        # configuration verdict, even for a scoped empty record (as framework-patch-review does in #2).
+        return "unknown", ref
     if any(flags.get(k) is False for k in fields):
         return "conditions_absent", ref
     if all(flags.get(k) is True for k in fields):
