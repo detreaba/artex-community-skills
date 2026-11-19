@@ -29,6 +29,8 @@ def deployment(advisory, version, **fields):
     inventory = {"asset": "demo-portal", "build": "release-70", "ref": "image-inventory-70",
                  "ecosystem": ecosystem, "package": package, "version": version,
                  "origin": "upstream", "deployment_verified": True}
+    if advisory == DRUPAL:
+        inventory["serving_core_version"] = version
     return {"advisory": advisory, "inventory": {**inventory, **fields}}
 
 
@@ -110,6 +112,23 @@ class FrameworkTests(unittest.TestCase):
                 self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
         row = self.check(deployment(DRUPAL, "v11.4.13", serving_core_version="11.4.13"))
         self.assertEqual(row["patch_status"], "vendor_fix_present")
+
+    def test_drupal_composer_metadata_alone_cannot_confirm_the_serving_code(self):
+        for version in ("11.4.12", "11.4.13"):
+            with self.subTest(version=version):
+                evidence = deployment(DRUPAL, version, ref="composer-installed-in-running-image")
+                del evidence["inventory"]["serving_core_version"]
+                row = self.check(evidence)
+                self.assertEqual(row["patch_status"], "unknown")
+                self.assertIsNone(row["first_fixed_in_range"])
+
+    def test_drupal_fixed_composer_line_and_newer_affected_core_disagree(self):
+        evidence = deployment(DRUPAL, "11.3.22", asset="line-cross", build="b1", ref="inv-1",
+                              serving_core_version="11.4.0")
+        row = self.check(evidence)
+        self.assertEqual(row["patch_status"], "unknown")
+        self.assertIsNone(row["first_fixed_in_range"])
+        self.assertEqual(row["applicability"], "unknown")
 
     def test_drupal_packaged_example_has_no_exposure_verdict(self):
         data = json.loads((ROOT / "examples" / f"{DRUPAL}.json").read_bytes())

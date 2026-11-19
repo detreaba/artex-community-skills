@@ -6,7 +6,7 @@ Independent ARTEX skills for website administrators. Each uses a small offline c
 | --- | --- | --- |
 | [Browser controls](skills/browser-controls/SKILL.md) | Does this HTML response declare a content security policy, framing protection and MIME-sniffing protection? | Captured status, headers and decoded document head. |
 | [Runtime patch review](skills/runtime-patch-review/SKILL.md) | Does this serving PHP or Node.js runtime include the upstream fix for a supported advisory? | Exact runtime version and origin from the deployed process. Configuration evidence can establish which affected features are in use. |
-| [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Drupal core, Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record and, when available, same-build evidence of the relevant application feature. |
+| [Framework patch review](skills/framework-patch-review/SKILL.md) | Does a deployed Drupal core, Next.js, Django or Symfony package fall within a vendor advisory’s affected releases? | A deployment-specific package record. Drupal also requires the version from the serving core code or status report. For other frameworks, same-build records can establish which features are in use. |
 | [Authorization matrix](skills/authorization-matrix/SKILL.md) | Do recorded access decisions agree with the owner's role and tenant policy? | A versioned policy and saved allow/deny results for the same build, role, resource and operation. |
 
 The source tree covers ten November 2026 advisories. Release v0.1.0 includes nine. Select the named advisory using the deployed product and the evidence you have. [Advisory catalog](ADVISORIES.md)

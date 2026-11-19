@@ -150,8 +150,8 @@ def review(request):
             detail = "The supplied package origin requires separate vendor or backport evidence."
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
-        elif "serving_core_version" in inventory and release(inventory["serving_core_version"], "composer") != parsed:
-            detail = "The serving core version does not corroborate the package version. Reconcile the deployment records."
+        elif package == "drupal/core" and release(inventory.get("serving_core_version"), "composer") != parsed:
+            detail = "A matching version from the serving core code or status report is required. Reconcile the deployment records."
         else:
             status, fixed, detail = classify(profile, parsed)
     return {
