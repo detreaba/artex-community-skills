@@ -1,0 +1,24 @@
+{
+  "policy": {
+    "asset": "checkout-edge-a",
+    "address": "192.0.2.17",
+    "deployment": "checkout-2026-11",
+    "vantage": "public-edge-view",
+    "ref": "approved-ports-v3",
+    "required": [
+      "tcp/443",
+      "tcp/8080"
+    ],
+    "allowed_open": [
+      "tcp/443"
+    ]
+  },
+  "report": {
+    "asset": "checkout-edge-a",
+    "address": "192.0.2.17",
+    "deployment": "checkout-2026-11",
+    "vantage": "public-edge-view",
+    "ref": "archived-observation-unknown",
+    "xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nmaprun>\n<nmaprun scanner=\"nmap\" start=\"1795003200\" version=\"7.98\" xmloutputversion=\"1.05\">\n  <scaninfo type=\"syn\" protocol=\"tcp\" numservices=\"2\" services=\"443,8080\"/>\n  <verbose level=\"0\"/><debugging level=\"0\"/>\n  <host starttime=\"1795003201\" endtime=\"1795003204\">\n    <status state=\"up\" reason=\"echo-reply\" reason_ttl=\"54\"/>\n    <address addr=\"192.0.2.17\" addrtype=\"ipv4\"/>\n    <ports>\n      <extraports state=\"filtered\" count=\"1\"><extrareasons reason=\"no-responses\" count=\"1\"/></extraports>\n      <port protocol=\"tcp\" portid=\"443\"><state state=\"open\" reason=\"syn-ack\" reason_ttl=\"54\"/></port>\n    </ports>\n  </host>\n  <runstats><finished time=\"1795003205\" elapsed=\"5.0\" exit=\"success\"/><hosts up=\"1\" down=\"0\" total=\"1\"/></runstats>\n</nmaprun>"
+  }
+}

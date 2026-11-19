@@ -1,0 +1,65 @@
+{
+  "context": {
+    "asset": "training-service",
+    "build": "training-101",
+    "policy": "python-policy-v1",
+    "expected_files": [
+      "./api.py",
+      "./worker.py"
+    ],
+    "ci": {
+      "asset": "training-service",
+      "build": "training-101",
+      "policy": "python-policy-v1",
+      "run_ref": "training-ci-unknown",
+      "policy_verified": true,
+      "unfiltered_output": true,
+      "baseline_applied": false,
+      "report_digest": "bcad29e3c2b3ece7e182dbe4a9835341175e481d844cf1c9c311bcb7851ec7e2",
+      "run_completed": true
+    }
+  },
+  "report": {
+    "errors": [
+      {
+        "filename": "./worker.py",
+        "reason": "syntax error while parsing AST from file"
+      }
+    ],
+    "generated_at": "2026-11-19T20:09:12Z",
+    "metrics": {
+      "./api.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 2,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "./worker.py": {
+        "loc": 2,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "_totals": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 4,
+        "nosec": 0,
+        "skipped_tests": 0
+      }
+    },
+    "results": []
+  }
+}

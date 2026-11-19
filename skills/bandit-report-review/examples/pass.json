@@ -1,0 +1,68 @@
+{
+  "context": {
+    "asset": "training-service",
+    "build": "training-101",
+    "policy": "python-policy-v1",
+    "expected_files": [
+      "./api.py",
+      "./worker.py"
+    ],
+    "ci": {
+      "asset": "training-service",
+      "build": "training-101",
+      "policy": "python-policy-v1",
+      "run_ref": "training-ci-pass",
+      "policy_verified": true,
+      "unfiltered_output": true,
+      "baseline_applied": false,
+      "report_digest": "61c30cdf5e8d7ce8577dd3a7cdacb48e77f84a572256c2a3303a70425b51f6a6",
+      "run_completed": true
+    }
+  },
+  "report": {
+    "errors": [],
+    "generated_at": "2026-11-19T20:09:12Z",
+    "metrics": {
+      "./api.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 2,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "./worker.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 2,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "_totals": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 4,
+        "nosec": 0,
+        "skipped_tests": 0
+      }
+    },
+    "results": []
+  }
+}
