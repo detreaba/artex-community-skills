@@ -23,6 +23,7 @@ class PackageTests(unittest.TestCase):
                 "tests/test_check.py": "# sample test\n",
                 "examples/gap.json": "{}", "examples/pass.json": "{}",
                 "examples/unknown.json": "{}", "examples/customer.json": "private",
+                "examples/CVE-2026-12345.json": "{}", "examples/CVE-customer.json": "private",
                 ".env": "private", "scripts/__pycache__/check.pyc": "bytecode",
             }
             for path, content in files.items():
@@ -43,6 +44,7 @@ class PackageTests(unittest.TestCase):
                     f"{name}/LICENSE", f"{name}/SKILL.md", f"{name}/scripts/check.py",
                     f"{name}/tests/test_check.py", f"{name}/examples/gap.json",
                     f"{name}/examples/pass.json", f"{name}/examples/unknown.json",
+                    f"{name}/examples/CVE-2026-12345.json",
                 ]))
                 self.assertEqual(archive.read(f"{name}/LICENSE"), b"example license\n")
             checksums.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}.zip\n")

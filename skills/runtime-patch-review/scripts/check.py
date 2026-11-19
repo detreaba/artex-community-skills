@@ -39,6 +39,14 @@ ADVISORIES = {
         "source": "https://nodejs.org/en/blog/vulnerability/november-2026-security-releases",
         "limitation": "Determine whether the serving Node process itself handles HTTP/2. An edge proxy can terminate HTTP/2 separately.",
     },
+    "CVE-2026-111497": {
+        "runtime": "node",
+        "fixed": ((22, 23, 4), (24, 22, 1), (26, 12, 1)),
+        "branch_parts": 1,
+        "conditions": ("node_decodes_untrusted_brotli",),
+        "source": "https://github.com/nodejs/security-wg/blob/main/vuln/core/204.json",
+        "limitation": "The cutoffs cover Node's upstream releases with their bundled Brotli decoder. A system-linked decoder requires its distributor's patch evidence.",
+    },
 }
 _ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,127}\Z")
 _VERSION = re.compile(r"(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\Z")
