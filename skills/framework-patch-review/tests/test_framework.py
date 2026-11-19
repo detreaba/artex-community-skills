@@ -14,6 +14,7 @@ SYMFONY = "CVE-2026-118514"
 DJANGO_CACHE = "CVE-2026-113593"
 DJANGO_ADMIN = "CVE-2026-113733"
 DRUPAL = "CVE-2026-132165"
+DRUPAL_018 = "CVE-2026-132166"
 PACKAGES = {
     CACHE_BINARY: ("npm", "next"),
     CACHE_NESTED: ("npm", "next"),
@@ -21,6 +22,7 @@ PACKAGES = {
     DJANGO_CACHE: ("pypi", "Django"),
     DJANGO_ADMIN: ("pypi", "Django"),
     DRUPAL: ("composer", "drupal/core"),
+    DRUPAL_018: ("composer", "drupal/core"),
 }
 
 
@@ -29,7 +31,7 @@ def deployment(advisory, version, **fields):
     inventory = {"asset": "demo-portal", "build": "release-70", "ref": "image-inventory-70",
                  "ecosystem": ecosystem, "package": package, "version": version,
                  "origin": "upstream", "deployment_verified": True}
-    if advisory == DRUPAL:
+    if package == "drupal/core":
         inventory["serving_core_version"] = version
     return {"advisory": advisory, "inventory": {**inventory, **fields}}
 
@@ -55,6 +57,7 @@ class FrameworkTests(unittest.TestCase):
         # Expected cutoffs are transcribed from the respective maintainers' release notices.
         for cve, boundaries in (
             (DRUPAL, ("10.6.22", "11.3.22", "11.4.13")),
+            (DRUPAL_018, ("10.6.22", "11.3.22", "11.4.13")),
             (DJANGO_CACHE, ("5.2.19", "6.0.10", "6.1.3")),
             (DJANGO_ADMIN, ("6.0.10", "6.1.3")),
             (SYMFONY, ("5.4.56", "6.4.50", "7.4.23", "8.1.11")),
@@ -97,9 +100,10 @@ class FrameworkTests(unittest.TestCase):
             ("7.1.0", "unknown", None), ("10.7.0", "unknown", None), ("11.5.0", "unknown", None),
             ("11.4.12-dev", "unknown", None), ("11.4.13-rc1", "unknown", None),
         ):
-            with self.subTest(version=version):
-                row = self.check(deployment(DRUPAL, version))
-                self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (expected, first_fix))
+            for advisory in (DRUPAL, DRUPAL_018):
+                with self.subTest(advisory=advisory, version=version):
+                    row = self.check(deployment(advisory, version))
+                    self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (expected, first_fix))
 
     def test_drupal_patch_requires_consistent_serving_package_evidence(self):
         for fields in (
@@ -108,9 +112,10 @@ class FrameworkTests(unittest.TestCase):
             {"serving_core_version": "11.4.12"}, {"serving_core_version": "unverified"},
             {"serving_core_version": "11.4.13-dev"},
         ):
-            with self.subTest(fields=fields):
-                row = self.check(deployment(DRUPAL, "11.4.13", **fields))
-                self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
+            for advisory in (DRUPAL, DRUPAL_018):
+                with self.subTest(advisory=advisory, fields=fields):
+                    row = self.check(deployment(advisory, "11.4.13", **fields))
+                    self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
         row = self.check(deployment(DRUPAL, "v11.4.13", serving_core_version="11.4.13"))
         self.assertEqual(row["patch_status"], "vendor_fix_present")
 
@@ -128,15 +133,20 @@ class FrameworkTests(unittest.TestCase):
                     self.assertIn("falls in the affected range", row["patch_reason"])
 
     def test_drupal_fixed_composer_line_and_newer_affected_core_disagree(self):
-        evidence = deployment(DRUPAL, "11.3.22", asset="line-cross", build="b1", ref="inv-1",
-                              serving_core_version="11.4.0")
-        row = self.check(evidence)
-        self.assertEqual(row["patch_status"], "unknown")
-        self.assertIsNone(row["first_fixed_in_range"])
-        self.assertEqual(row["applicability"], "unknown")
-        self.assertIsNone(row["version"])
-        self.assertEqual(row["version_evidence"], {"composer": "11.3.22", "serving_core": "11.4.0"})
-        self.assertIn("serving core falls in the affected range", row["patch_reason"])
+        prior = deployment(DRUPAL, "11.3.22", asset="line-cross", build="b1", ref="inv-1",
+                           serving_core_version="11.4.0")
+        sample = json.loads((ROOT / "examples" / f"{DRUPAL_018}.json").read_bytes())
+        for evidence, advisory, bulletin in ((prior, DRUPAL, "017"), (sample, DRUPAL_018, "018")):
+            with self.subTest(advisory=advisory):
+                row = self.check(evidence)
+                self.assertEqual(row["advisory"], advisory)
+                self.assertEqual(row["sources"], [f"https://www.drupal.org/sa-core-2026-{bulletin}"])
+                self.assertEqual(row["patch_status"], "unknown")
+                self.assertIsNone(row["first_fixed_in_range"])
+                self.assertEqual(row["applicability"], "unknown")
+                self.assertIsNone(row["version"])
+                self.assertEqual(row["version_evidence"], {"composer": "11.3.22", "serving_core": "11.4.0"})
+                self.assertIn("serving core falls in the affected range", row["patch_reason"])
 
     def test_drupal_names_each_affected_observation_on_disagreement(self):
         for composer, serving, origin, affected_sources in (
