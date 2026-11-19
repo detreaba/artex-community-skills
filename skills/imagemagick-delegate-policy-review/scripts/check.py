@@ -11,6 +11,7 @@ TAG = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}")
 RELEASE = re.compile(r"7\.1\.([12])-(0|[1-9][0-9]?)")
 COVERAGE = ("loaded", "order", "files_and_includes", "builtins", "stealth", "runtime")
 OTHER_DOMAINS = {"cache", "coder", "filter", "module", "path", "resource", "system"}
+PLACEHOLDERS = {"unknown", "redacted", "unavailable", "unverified", "missing", "unset", "unspecified", "null", "none"}
 DENY, ALLOW, EITHER = 1, 2, 3
 
 
@@ -25,7 +26,7 @@ def supported(version):
 
 
 def alias(value):
-    return isinstance(value, str) and ALIAS.fullmatch(value) is not None
+    return isinstance(value, str) and ALIAS.fullmatch(value) is not None and value.lower() not in PLACEHOLDERS
 
 
 def object_value(value):
@@ -65,7 +66,7 @@ def policy_decision(rows):
         if domain in OTHER_DOMAINS:
             continue
         pattern = row.get("pattern")
-        if isinstance(pattern, str) and TAG.fullmatch(pattern):
+        if isinstance(pattern, str) and TAG.fullmatch(pattern) and pattern.lower() not in PLACEHOLDERS:
             names.add(pattern)
         elif pattern != "*":
             # A missing, redacted or complex pattern might match any subset.

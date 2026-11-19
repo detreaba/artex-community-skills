@@ -95,6 +95,19 @@ class DelegatePolicyTests(unittest.TestCase):
         data["export"]["origin"] = "upstream_equivalent"
         self.assertEqual(invoke(data)["status"], "gap")
 
+    def test_redacted_ids_and_refs_cannot_establish_identity(self):
+        for field in ("build", "ref", "version_ref"):
+            data = fixture("pass")
+            data["export"][field] = "REDACTED"
+            if field == "build":
+                data["worker"]["build"] = "REDACTED"
+            got = invoke(data)
+            self.assertEqual((got["status"], got["other_execute"]), ("unknown", "unassessed"))
+
+    def test_repeated_redactions_cannot_cancel_each_other(self):
+        self.assertEqual(evaluate(rule("*"), rule("redacted", "execute"), rule("REDACTED")),
+                         ("unknown", [], [], "unknown"))
+
     def test_listing_fragment_and_unavailable_rules(self):
         for kind in ("listing", "policy_file", None):
             data = fixture("pass")
