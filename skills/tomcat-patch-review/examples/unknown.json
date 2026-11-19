@@ -1,0 +1,11 @@
+{
+  "advisory": "CVE-2026-103119",
+  "inventory": {
+    "asset": "training-portal",
+    "build": "image-43",
+    "ref": "build-pom-43",
+    "deployment_verified": false,
+    "source": "pom",
+    "upstream_version": "11.0.27"
+  }
+}

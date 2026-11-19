@@ -1,0 +1,16 @@
+{
+  "advisory": "CVE-2026-103119",
+  "inventory": {
+    "asset": "training-portal",
+    "build": "image-43",
+    "instance": "jvm-start-18",
+    "ref": "loaded-embedded-inventory-18",
+    "deployment_verified": true,
+    "source": "serving_class_manifest",
+    "class_name": "org.apache.catalina.connector.OutputBuffer",
+    "bundle_symbolic_name": "org.apache.tomcat-embed-core",
+    "implementation_version": "11.0.27",
+    "origin": "upstream",
+    "upstream_version": "11.0.27"
+  }
+}

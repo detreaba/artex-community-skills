@@ -1,0 +1,16 @@
+{
+  "advisory": "CVE-2026-103119",
+  "inventory": {
+    "asset": "training-portal",
+    "build": "image-42",
+    "instance": "jvm-start-17",
+    "ref": "loaded-catalina-inventory-17",
+    "deployment_verified": true,
+    "source": "serving_class_manifest",
+    "class_name": "org.apache.catalina.connector.OutputBuffer",
+    "bundle_symbolic_name": "org.apache.tomcat-catalina",
+    "implementation_version": "11.0.26",
+    "origin": "upstream",
+    "upstream_version": "11.0.26"
+  }
+}
