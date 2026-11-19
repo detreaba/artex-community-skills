@@ -14,6 +14,18 @@ DJANGO_CACHE_WINDOWS = (
 DJANGO_BULLETIN = "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/"
 NEXT_ADVISORIES = "https://github.com/vercel/next.js/security/advisories/"
 ADVISORIES = {
+    "CVE-2026-132165": {
+        "ecosystem": "composer", "package": "drupal/core", "published": "2026-11-18",
+        # Include the legacy core releases named in the bulletin. Only the three
+        # supported minor lines have a documented fix; don't extrapolate to newer lines.
+        "windows": (
+            ((8, 0, 0), (10, 6, 22), (10, 7, 0)),
+            ((11, 0, 0), (11, 3, 22), (11, 4, 0)),
+            ((11, 4, 0), (11, 4, 13), (11, 5, 0)),
+        ),
+        "conditions": (),
+        "sources": ["https://www.drupal.org/sa-core-2026-017"],
+    },
     "CVE-2026-119349": {
         "ecosystem": "npm", "package": "next", "published": "2026-11-03",
         "windows": (((16, 0, 0), (16, 4, 5), (17, 0, 0)),),
@@ -96,6 +108,9 @@ def classify(profile, version):
 
 def feature_status(profile, config, scope):
     conditions = check_fields(config.get("conditions", {}), profile["conditions"])
+    if not profile["conditions"]:
+        # A package-only rule has no configuration verdict, even for a referenced empty record.
+        return "unknown", None
     if any(v is not None and type(v) is not bool for v in conditions.values()):
         raise ValueError("A condition must be true, false or null.")
     ref = alias(config.get("ref"))
@@ -114,8 +129,10 @@ def review(request):
     if not isinstance(advisory, str) or advisory not in ADVISORIES:
         raise ValueError("Select a supported advisory.")
     profile = ADVISORIES[advisory]
-    inventory = check_fields(request.get("inventory", {}), (
-        "asset", "build", "ref", "ecosystem", "package", "version", "origin", "deployment_verified"))
+    inventory_fields = ("asset", "build", "ref", "ecosystem", "package", "version", "origin", "deployment_verified")
+    if profile["package"] == "drupal/core":
+        inventory_fields += ("serving_core_version",)
+    inventory = check_fields(request.get("inventory", {}), inventory_fields)
     config = check_fields(request.get("applicability", {}), ("asset", "build", "ref", "conditions"))
     scope = {k: alias(inventory.get(k)) for k in ("asset", "build")}
     inv_ref = alias(inventory.get("ref"))
@@ -133,6 +150,8 @@ def review(request):
             detail = "The supplied package origin requires separate vendor or backport evidence."
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
+        elif "serving_core_version" in inventory and release(inventory["serving_core_version"], "composer") != parsed:
+            detail = "The serving core version does not corroborate the package version. Reconcile the deployment records."
         else:
             status, fixed, detail = classify(profile, parsed)
     return {
