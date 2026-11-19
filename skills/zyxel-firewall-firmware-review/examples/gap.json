@@ -1,0 +1,18 @@
+{
+  "advisory": "CVE-2025-1731",
+  "asset": "training-firewall-a",
+  "build": "boot-17",
+  "inventory": {
+    "asset": "training-firewall-a",
+    "build": "boot-17",
+    "ref": "firmware-status-17",
+    "origin": "upstream",
+    "origin_ref": "production-image-17",
+    "deployment_verified": true,
+    "source": "firmware_management",
+    "firmware_status": [
+      {"Status": "Running", "Model": "USG FLEX 200HP", "Version": "V1.31(ABXE.0)"}
+    ],
+    "cloud_latest_version": "V1.32(ABXE.0)C0"
+  }
+}
