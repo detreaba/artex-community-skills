@@ -1,0 +1,17 @@
+{
+  "advisory": "CVE-2026-59205",
+  "inventory": {
+    "asset": "training-images", "build": "release-5", "worker": "worker-2-start-39",
+    "ref": "runtime-inventory-44", "origin": "upstream", "deployment_verified": true, "version": "12.3.0"
+  },
+  "wheel": {
+    "ref": "verified-wheel-12.3", "pypi_verified": true, "name": "pillow", "version": "12.3.0",
+    "member": "PIL/_imagingcms.cpython-312-x86_64-linux-gnu.so",
+    "record_hash": "sha256=sHV6itdQFfScf1pNk2WryclUnXMnTf40gwbjVlVNgqg"
+  },
+  "native": {
+    "asset": "training-images", "build": "release-5", "worker": "worker-2-start-39",
+    "ref": "mapped-extension-44", "module": "PIL._imagingcms", "binding": "mapped_file",
+    "sha256": "2314ae97dd3ead5ff2ab3d9454979ccbdca952ab2fd6c367439c8e56d1729714"
+  }
+}
