@@ -459,6 +459,106 @@ class PackageAdvisoryTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertEqual(self.run_cli(valid, *args)[0], 2)
 
+    def test_newest_copy_of_an_advisory_wins_in_any_load_order(self):
+        # Codex, PR #9 (GHSA-2cjh-75gp-34gc): a newer withdrawal must win whichever snapshot loads first.
+        anchor = rec("ANCHOR", "npm", "anchor", (SEMVER, [{"introduced": "0"}, {"fixed": "1.0.0"}]))
+
+        def copy(modified, fixed="2.0.0", withdrawn=None, names=("foo",)):
+            record = {"id": "GHSA-dup", "modified": modified, "affected": [
+                {"package": {"ecosystem": "npm", "name": n},
+                 "ranges": [{"type": SEMVER, "events": [{"introduced": "0"}, {"fixed": fixed}]}]} for n in names]}
+            if withdrawn is not None:
+                record["withdrawn"] = withdrawn
+            return record
+
+        cases = {
+            "newer withdrawal": (copy("2024-02-06T00:00:00Z"),
+                                 copy("2024-02-13T00:00:00Z", withdrawn="2024-02-13T00:00:00Z"), {"foo": "no_matching_advisory"}),
+            "fractional seconds": (copy("2026-11-01T00:00:00Z", fixed="1.0.0"), copy("2026-11-01T00:00:00.500Z"),
+                                   {"foo": "affected"}),
+            "newer copy drops a package": (copy("2026-11-01T00:00:00Z", names=("foo", "bar")),
+                                           copy("2026-11-02T00:00:00Z", names=("bar",)),
+                                           {"foo": "no_matching_advisory", "bar": "affected"}),
+            "tie keeps the active copy": (copy("2026-11-01T00:00:00Z"),
+                                          copy("2026-11-01T00:00:00Z", withdrawn="2026-11-01T00:00:00Z"), {"foo": "affected"}),
+            "tie keeps the most severe": (copy("2026-11-01T00:00:00Z", fixed="1.0.0"), copy("2026-11-01T01:00:00+01:00"),
+                                          {"foo": "affected"}),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, (older, newer, want) in cases.items():
+                first = self.write_zip(tmp, "first.zip", [anchor, older])
+                second = self.write_zip(tmp, "second.zip", [anchor, newer])
+                packages = [pkg("npm", n, "1.5.0") for n in want]
+                for order in ((first, second), (second, first)):
+                    with self.subTest(case=label, loaded_first=order[0].name):
+                        out = self.zip_status(packages, "--osv", f"npm={order[0]}", "--osv", f"npm={order[1]}")
+                        self.assertEqual({p["name"]: p["status"] for p in out["packages"]}, want)
+            # The same history split between an inline snapshot and an export.
+            withdrawal = self.write_zip(tmp, "withdrawal.zip", [anchor, cases["newer withdrawal"][1]])
+            data = request([pkg("npm", "foo", "1.5.0")], covers=("npm",), advisories=[anchor, cases["newer withdrawal"][0]])
+            out = self.status(data, "--osv", f"npm={withdrawal}")
+            self.assertEqual(out["packages"][0]["status"], "no_matching_advisory")
+
+    def test_malformed_withdrawals_leave_the_record_active(self):
+        values = ["not-a-date", True, {"x": 1}, ["2026-01-01T00:00:00Z"], "false", "2026-13-01T00:00:00Z"]
+        records = [dict(rec(f"W-{i}", "npm", f"w{i}", (SEMVER, [{"introduced": "0"}])), withdrawn=v)
+                   for i, v in enumerate(values)]
+        # No clock is read, so a well-formed withdrawal is honoured even when it is dated in the future.
+        future = dict(rec("W-future", "npm", "wfuture", (SEMVER, [{"introduced": "0"}])), withdrawn="2999-01-01T00:00:00Z")
+        packages = [pkg("npm", f"w{i}", "1.0.0") for i in range(len(values))] + [pkg("npm", "wfuture", "1.0.0")]
+        out = self.status(request(packages, covers=("npm",), advisories=records + [future, ADVISORIES[0]]))
+        self.assertEqual([p["status"] for p in out["packages"]], ["affected"] * len(values) + ["no_matching_advisory"])
+        self.assertEqual((out["snapshots"][0]["withdrawn_ignored"], out["snapshots"][0]["withdrawn"]), (len(values), 1))
+
+    def test_events_that_share_a_version(self):
+        # Real shapes: 20 DRUPAL-CONTRIB ranges with introduced == last_affected, and MAL-2026-3461/3463 with two
+        # fixed events at one version. Introduced == fixed stays inconclusive at every version.
+        records = [rec("E-1", "Packagist", "drupal/img", (ECO, [{"introduced": "1.0.0"}, {"last_affected": "1.0.0"}])),
+                   rec("MAL-E-2", "npm", "@scope/hist", (SEMVER, [{"introduced": "1.161.12"}, {"fixed": "1.161.13"},
+                                                                  {"introduced": "1.161.9"}, {"fixed": "1.161.13"}]),
+                       versions=["1.161.9"]),
+                   rec("E-3", "npm", "iota2", (SEMVER, [{"introduced": "1.0.0"}, {"fixed": "1.0.0"}]))]
+        for eco, name, version, want in (("Packagist", "drupal/img", "1.0.0", "affected"),
+                                         ("Packagist", "drupal/img", "0.9.0", "no_matching_advisory"),
+                                         ("Packagist", "drupal/img", "1.0.1", "unknown"),
+                                         ("npm", "@scope/hist", "1.161.10", "affected"),
+                                         ("npm", "@scope/hist", "1.161.14", "no_matching_advisory"),
+                                         ("npm", "@scope/hist", "1.100.0", "no_matching_advisory"),
+                                         ("npm", "iota2", "0.9.0", "unknown"), ("npm", "iota2", "1.0.0", "unknown"),
+                                         ("npm", "iota2", "1.1.0", "unknown")):
+            with self.subTest(name=name, version=version):
+                self.assertEqual(self.one(eco, name, version, covers=("npm", "Packagist"), advisories=records)["status"], want)
+
+    def test_listed_versions_outside_the_syntax_are_not_ruled_out(self):
+        records = [rec("L-1", "npm", "total4", versions=["12.0"]),
+                   rec("L-2", "Packagist", "symfony/symfony", versions=["2.2-dev"]),
+                   rec("L-3", "Packagist", "acme/odd", versions=["1.0.0~weird"])]
+        for eco, name, version, want in (("npm", "total4", "12.0.0", "unknown"),
+                                         ("Packagist", "symfony/symfony", "4.4.0", "no_matching_advisory"),
+                                         ("Packagist", "symfony/symfony", "2.2-dev", "affected"),
+                                         ("Packagist", "acme/odd", "1.0.0", "unknown")):
+            with self.subTest(name=name, version=version):
+                self.assertEqual(self.one(eco, name, version, covers=("npm", "Packagist"), advisories=records)["status"], want)
+
+    def test_composer_repositories_need_their_own_records(self):
+        private = rec("R-1", "Packagist:https://repo.example.com", "acme/private", (ECO, [{"introduced": "0"}, {"fixed": "2.0.0"}]))
+        for advisories, eco, name, version, want in (
+                (ADVISORIES, "Packagist:https://repo.example.com", "acme/other", "1.0.0", "unknown"),
+                (ADVISORIES, "Packagist:", "acme/other", "1.0.0", "unknown"),
+                (ADVISORIES, "Packagist:https://repo.example.com", "acme/http", "5.4.55", "affected"),
+                (ADVISORIES, "Packagist:https://packages.drupal.org/8", "drupal/foo", "1.35.0", "no_matching_advisory"),
+                (ADVISORIES, "Packagist:https://packages.drupal.org/8", "drupal/foo", "1.34.0", "affected"),
+                (ADVISORIES + [private], "Packagist:https://repo.example.com", "acme/other", "1.0.0", "no_matching_advisory"),
+                (ADVISORIES + [private], "Packagist:https://repo.example.com", "acme/private", "1.5.0", "affected")):
+            with self.subTest(eco=eco, name=name, version=version, private=len(advisories) > len(ADVISORIES)):
+                self.assertEqual(self.one(eco, name, version, advisories=advisories)["status"], want)
+
+    def test_debian_source_names_follow_policy(self):
+        for name, want in (("Nginx", "unknown"), ("nginx ", "unknown"), ("n", "unknown"), ("-nginx", "unknown"),
+                           ("nginx", "affected")):
+            with self.subTest(name=name):
+                self.assertEqual(self.one("Debian:12", name, "1.22.1-9")["status"], want)
+
     def test_snapshot_without_family_or_with_invalid_record_is_incomplete(self):
         self.assertEqual(self.one("npm", "mu", "1.0.0", covers=("Packagist",))["status"], "unknown")
         broken = ADVISORIES + [{"id": 12345, "affected": "not-a-list"}]

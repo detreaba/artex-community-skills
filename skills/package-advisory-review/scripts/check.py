@@ -17,6 +17,7 @@ import re
 import sys
 import zipfile
 import zlib
+from datetime import datetime, timedelta, timezone
 from functools import cmp_to_key
 from pathlib import Path
 
@@ -235,6 +236,23 @@ def package_key(family, ecosystem, name):
     return (family, name)
 
 
+def _order_ties(events, cmp, lead):
+    """Sort events by version, putting events of kind `lead` first among those sharing a version."""
+    return sorted(events, key=cmp_to_key(lambda x, y: cmp(x[0], y[0]) or _cmp(x[1] != lead, y[1] != lead)))
+
+
+def _walk(events, v, cmp):
+    vulnerable, setter = False, None
+    for key, kind, _ in events:
+        if kind == "introduced" and cmp(v, key) >= 0:
+            vulnerable, setter = True, kind
+        elif kind == "fixed" and cmp(v, key) >= 0:
+            vulnerable, setter = False, kind
+        elif kind == "last_affected" and cmp(v, key) > 0:
+            vulnerable, setter = False, kind
+    return vulnerable, setter
+
+
 def evaluate_range(rng, version, ordering, ceiling_clear=False):
     """Return (state, reason, fixed_above) for one range; state is affected, clear or inconclusive.
 
@@ -274,17 +292,22 @@ def evaluate_range(rng, version, ordering, ceiling_clear=False):
     if limits and not any(cmp(v, key) < 0 for key, _, _ in limits):
         return "clear", "At or above every range limit.", []
     events.sort(key=cmp_to_key(lambda x, y: cmp(x[0], y[0])))
+    # The schema leaves the order of events that share a version open. Events of one kind give the
+    # same walk in any order. For introduced together with last_affected, walk both extreme orders
+    # and require them to agree; that settles the shared version itself. Introduced together with
+    # fixed describes an empty or contradictory range and stays inconclusive.
+    orders = [events]
     for first, second in zip(events, events[1:]):
-        if cmp(first[0], second[0]) == 0:
-            return "inconclusive", "Two events in one range share a version.", []
-    vulnerable, setter = False, None
-    for key, kind, _ in events:
-        if kind == "introduced" and cmp(v, key) >= 0:
-            vulnerable, setter = True, kind
-        elif kind == "fixed" and cmp(v, key) >= 0:
-            vulnerable, setter = False, kind
-        elif kind == "last_affected" and cmp(v, key) > 0:
-            vulnerable, setter = False, kind
+        if cmp(first[0], second[0]) != 0 or first[1] == second[1]:
+            continue
+        if {first[1], second[1]} == {"introduced", "last_affected"}:
+            orders = [_order_ties(events, cmp, lead) for lead in ("introduced", "last_affected")]
+            continue
+        return "inconclusive", "The range has an introduced and a fixed event at the same version.", []
+    outcomes = {_walk(order, v, cmp) for order in orders}
+    if len(outcomes) > 1:
+        return "inconclusive", "Events that share a version give different results depending on their order.", []
+    vulnerable, setter = outcomes.pop()
     fixed_above = [raw for key, kind, raw in events if kind == "fixed" and cmp(key, v) > 0]
     if vulnerable:
         return "affected", "The version falls inside an affected range.", fixed_above
@@ -307,6 +330,11 @@ def evaluate_entry(entry, version, family, ceiling_clear=False):
     return ("inconclusive", "Composer's version ordering and OSV's Packagist ordering disagree for this version.", [])
 
 
+def _composer_dev(value):
+    low = value.lower()
+    return low.startswith("dev-") or low.endswith("dev")
+
+
 def evaluate_entry_under(entry, version, ordering, ceiling_clear=False):
     parse, raw_cmp = COMPARATORS[ordering]
     listed = entry.get("versions") or []
@@ -314,12 +342,20 @@ def evaluate_entry_under(entry, version, ordering, ceiling_clear=False):
     states = [evaluate_range(r, version, ordering, ceiling_clear) for r in ranges]
     hits = [s for s in states if s[0] == "affected"]
     parsed = parse(version)
+    unparsed = False
     for item in listed:
         other = parse(item)
         if item == version or (parsed is not None and other is not None and raw_cmp(parsed, other) == 0):
             return "affected", "The version is enumerated by the record.", hits[0][2] if hits else []
+        # A listed version outside the syntax cannot be compared, so it cannot be ruled out. Composer
+        # development versions ("dev-main", "2.2-dev") are the exception: Composer never treats one
+        # as equal to a tagged release, so they match by exact string only.
+        if other is None and not (ordering == "Packagist" and _composer_dev(item)):
+            unparsed = True
     if hits:
         return hits[0]
+    if unparsed:
+        return "inconclusive", "A listed version is outside the expected syntax, so it cannot be ruled out.", []
     if not ranges:
         if listed:
             return "clear", "Not among the enumerated versions.", []
@@ -361,6 +397,34 @@ def _short(value, limit=64):
     return value if isinstance(value, str) and len(value) <= limit else None
 
 
+_RFC3339 = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt ]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?"
+                      r"([Zz]|[+-][0-9]{2}:[0-9]{2})")
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def rfc3339_ns(value):
+    """Nanoseconds since 1970 for an RFC 3339 timestamp, or None when the value is not one.
+    Fractions are kept to the nanosecond, so '...00Z' and '...00.500Z' order correctly."""
+    m = _RFC3339.fullmatch(value) if isinstance(value, str) and len(value) <= 64 else None
+    if m is None:
+        return None
+    year, month, day, hour, minute, second = (int(x) for x in m.groups()[:6])
+    zone, offset = m.group(8), 0
+    if zone not in ("Z", "z"):
+        hours, minutes = int(zone[1:3]), int(zone[4:6])
+        if hours > 23 or minutes > 59:
+            return None
+        offset = (hours * 60 + minutes) * 60 * (1 if zone[0] == "+" else -1)
+    try:
+        moment = datetime(year, month, day, hour, minute, min(second, 59), tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if second > 60:
+        return None
+    seconds = (moment - _EPOCH) // timedelta(seconds=1) - offset + (second == 60)
+    return seconds * 1_000_000_000 + int((m.group(7) or "")[:9].ljust(9, "0"))
+
+
 def valid_record(rec):
     if not isinstance(rec, dict) or not isinstance(rec.get("id"), str) or not 0 < len(rec["id"]) <= MAX_FIELD:
         return False
@@ -397,13 +461,15 @@ TRACKER_COVERAGE = 0.25
 class Snapshot:
     def __init__(self):
         self.index = {}
-        self.ecosystems = set()
+        self.copies = {}
         self.sources = []
         self.complete = {}
-        # Per Debian release: entries from Debian security-tracker records (ID prefix "DEBIAN-"),
-        # counted only from sources declared to cover Debian. DSA/DLA records only describe
-        # fixed issues, so they cannot show that a release's open issues are tracked.
+        # Per Debian release: Debian security-tracker records (ID prefix "DEBIAN-"), counted only
+        # from sources declared to cover Debian. DSA/DLA records only describe fixed issues, so
+        # they cannot show that a release's open issues are tracked.
         self.tracker = {}
+        # Ecosystem strings (for example a Packagist:<repository> suffix) seen in each declared family.
+        self.declared = {family: set() for family in FAMILIES}
 
     def debian_release_covered(self, eco):
         best = max(self.tracker.values(), default=0)
@@ -416,39 +482,70 @@ class Snapshot:
         stats["records"] += 1
         for fam in {family_of(e.get("package", {}).get("ecosystem", "")) for e in rec.get("affected", [])} - {None}:
             stats["family_records"][fam] = stats["family_records"].get(fam, 0) + 1
+        # The schema makes "withdrawn" an RFC 3339 time. Any other value is ignored and counted,
+        # so the record stays active. No clock is read: a well-formed time is always honoured.
+        withdrawn = rec.get("withdrawn")
+        withdrawn_at = rfc3339_ns(withdrawn) if withdrawn is not None and withdrawn != "" else None
+        if withdrawn is not None and withdrawn != "" and withdrawn_at is None:
+            stats["withdrawn_ignored"] += 1
+        active = withdrawn_at is None
+        modified_at = rfc3339_ns(rec.get("modified"))
+        self.copies.setdefault(rec["id"], []).append((modified_at, active, rec))
+        if not active:
+            stats["withdrawn"] += 1
+            return
         for entry in rec.get("affected", []):
             for rng in entry.get("ranges", []):
                 kinds = [next(iter(event)) for event in rng.get("events", [])]
                 if "introduced" not in kinds or ("fixed" in kinds and "last_affected" in kinds):
                     stats["damaged_ranges"] += 1
-        if rec.get("withdrawn"):
-            stats["withdrawn"] += 1
-            return
-        modified = _short(rec.get("modified"))
-        if modified is not None and modified > stats["newest_modified"]:
-            stats["newest_modified"] = modified
-        if stats.get("declares_debian") and rec["id"].startswith("DEBIAN-"):
+        if modified_at is not None and modified_at > stats["newest_modified_ns"]:
+            stats["newest_modified_ns"], stats["newest_modified"] = modified_at, rec["modified"]
+        for entry in rec.get("affected", []):
+            eco = entry.get("package", {}).get("ecosystem", "")
+            family = family_of(eco)
+            # Ecosystem strings are short; the bound keeps record text out of reported keys.
+            if family in stats["declares"] and len(eco) <= 64:
+                self.declared[family].add(eco)
+        if "Debian" in stats["declares"] and rec["id"].startswith("DEBIAN-"):
             for eco in {e.get("package", {}).get("ecosystem", "") for e in rec.get("affected", [])}:
-                # Release names are short; the length bound keeps record text out of the reported keys.
                 if eco.startswith("Debian:") and len(eco) <= 64:
                     self.tracker[eco] = self.tracker.get(eco, 0) + 1
-        for entry in rec.get("affected", []):
-            pkg = entry.get("package", {})
-            eco, name = pkg.get("ecosystem", ""), pkg.get("name", "")
-            family = family_of(eco)
-            if family is None or not name:
-                continue
-            self.ecosystems.add(eco)
-            bucket = self.index.setdefault(package_key(family, eco, name), {})
-            current = bucket.get(rec["id"])
-            if current is None or str(rec.get("modified", "")) > str(current.get("modified", "")):
-                bucket[rec["id"]] = rec
+
+    def resolve(self):
+        """Index, for each advisory ID, the newest copy across every source, by parsed `modified`
+        time. A newer withdrawal therefore wins whatever the load order, and a newer copy that drops
+        a package removes the older copy's match. When the newest copies tie, or any copy's time
+        cannot be read, every candidate copy is kept and the most severe result wins, so a tie
+        between an active and a withdrawn copy leaves the record active."""
+        for rid, copies in self.copies.items():
+            times = [t for t, _, _ in copies]
+            winners = copies if None in times else [c for c in copies if c[0] == max(times)]
+            live, seen = [], set()
+            for _, active, rec in winners:
+                text = json.dumps(rec, sort_keys=True) if len(winners) > 1 else None
+                if active and text not in seen:
+                    live.append(rec)
+                    if text is not None:
+                        seen.add(text)
+            for rec in live:
+                for entry in rec.get("affected", []):
+                    pkg = entry.get("package", {})
+                    eco, name = pkg.get("ecosystem", ""), pkg.get("name", "")
+                    family = family_of(eco)
+                    if family is None or not name:
+                        continue
+                    held = self.index.setdefault(package_key(family, eco, name), {}).setdefault(rid, [])
+                    if not any(r is rec for r in held):
+                        held.append(rec)
+        self.copies = {}
 
     @staticmethod
-    def _new_stats(family, source, declares_debian):
+    def _new_stats(family, source, declares):
         return {"family": family, "source": source, "sha256": None, "records": 0, "withdrawn": 0,
-                "invalid": 0, "unreadable": 0, "oversized": 0, "skipped": 0, "damaged_ranges": 0,
-                "newest_modified": "", "family_records": {}, "declares_debian": declares_debian}
+                "withdrawn_ignored": 0, "invalid": 0, "unreadable": 0, "oversized": 0, "skipped": 0,
+                "damaged_ranges": 0, "newest_modified": "", "newest_modified_ns": -1, "family_records": {},
+                "declares": set(declares)}
 
     def _store(self, raw, stats):
         if raw is None:
@@ -461,7 +558,7 @@ class Snapshot:
     def load(self, family, path):
         # Every entry must be read as a record. Anything skipped, unreadable or oversized leaves
         # the family incomplete, so it can only lead to "unknown", never to a clean result.
-        stats = self._new_stats(family, path.name, family == "Debian")
+        stats = self._new_stats(family, path.name, (family,))
         if path.is_dir():
             for item in sorted(path.iterdir()):
                 if not item.is_file() or item.suffix.lower() != ".json":
@@ -502,12 +599,12 @@ class Snapshot:
 
     def load_inline(self, snapshot):
         covers = list(dict.fromkeys(snapshot["covers"]))
-        shared = self._new_stats("+".join(covers), "inline:" + snapshot.get("label", "request"), "Debian" in covers)
+        shared = self._new_stats("+".join(covers), "inline:" + snapshot.get("label", "request"), covers)
         for rec in snapshot.get("advisories", []):
             self.add_record(rec, shared)
         # Report completeness per covered family, so the metadata matches each family's verdicts.
         for family in covers:
-            stats = dict(shared, family=family, family_records=dict(shared["family_records"]))
+            stats = dict(shared, family=family, family_records=dict(shared["family_records"]), declares=set(covers))
             self._finish(family, stats, declared_export=False)
 
     def _parse_into(self, raw, stats):
@@ -530,9 +627,10 @@ class Snapshot:
             stats["complete"] = ok
             stats["newest_modified"] = stats["newest_modified"] or None
             stats["family_records"] = dict(sorted(stats["family_records"].items()))
-            stats.pop("declares_debian", None)
+            stats.pop("declares", None)
+            stats.pop("newest_modified_ns", None)
             if family == "Debian":
-                stats["debian_tracker_entries"] = dict(sorted(self.tracker.items()))
+                stats["debian_tracker_records"] = dict(sorted(self.tracker.items()))
             self.sources.append(stats)
 
 
@@ -569,6 +667,9 @@ def load_kev(data):
     return kev, _short(data.get("catalogVersion"))
 
 
+_DEBIAN_SOURCE = re.compile(r"[a-z0-9][a-z0-9+.-]+")
+
+
 def record_cves(rec):
     ids = [rec["id"]] + rec.get("aliases", []) + rec.get("upstream", [])
     return sorted({x for x in ids if isinstance(x, str) and re.fullmatch(r"CVE-[0-9]{4}-[0-9]{4,}", x)})
@@ -590,6 +691,10 @@ def review_package(pkg, snapshot, kev, bound):
     if family == "Debian" and eco == "Debian":
         row["reason"] = "Name the Debian release, for example Debian:12. Coverage is judged per release."
         return row
+    if family == "Debian" and not _DEBIAN_SOURCE.fullmatch(name):
+        row["reason"] = ("Debian source package names have at least two characters: lower-case letters, digits, "
+                         "'+', '-' and '.', starting with a letter or digit (Debian Policy 5.6.1).")
+        return row
     # The OSV schema's wildcard name "*" covers every package in the ecosystem (for example an
     # end-of-life release), and an unsuffixed "Debian" entry is not scoped to a release, so both
     # kinds of record apply to this package too.
@@ -599,28 +704,35 @@ def review_package(pkg, snapshot, kev, bound):
         keys |= {("Debian", name), ("Debian", "*")}
     records = {}
     for key in keys:
-        records.update(snapshot.index.get(key, {}))
+        for rid, held in snapshot.index.get(key, {}).items():
+            copies = records.setdefault(rid, [])
+            copies.extend(rec for rec in held if not any(rec is c for c in copies))
     affected, inconclusive = [], []
-    for rec in sorted(records.values(), key=lambda r: r["id"]):
-        if rec.get("withdrawn"):
-            continue
-        results, wildcard = [], False
-        for entry in rec.get("affected", []):
-            p = entry.get("package", {})
-            if family_of(p.get("ecosystem", "")) != family:
+    for rid in sorted(records):
+        best = None
+        for rec in records[rid]:
+            results, wildcard = [], False
+            for entry in rec.get("affected", []):
+                p = entry.get("package", {})
+                if family_of(p.get("ecosystem", "")) != family:
+                    continue
+                entry_key = package_key(family, p.get("ecosystem", ""), p.get("name", ""))
+                if entry_key not in keys:
+                    continue
+                wildcard = wildcard or entry_key[1] == "*"
+                outcome = evaluate_entry(entry, version, family, ceiling_clear=rid.startswith("MAL-"))
+                results.append((outcome, entry))
+            if not results:
                 continue
-            entry_key = package_key(family, p.get("ecosystem", ""), p.get("name", ""))
-            if entry_key not in keys:
-                continue
-            wildcard = wildcard or entry_key[1] == "*"
-            outcome = evaluate_entry(entry, version, family, ceiling_clear=rec["id"].startswith("MAL-"))
-            results.append((outcome, entry))
-        if not results:
+            state, decisive = next((r for r in results if r[0][0] == "affected"), None) or \
+                next((r for r in results if r[0][0] == "inconclusive"), None) or results[0]
+            # Tied copies of one ID: the most severe result wins.
+            rank = {"clear": 0, "inconclusive": 1, "affected": 2}[state[0]]
+            if best is None or rank > best[0]:
+                best = (rank, state, decisive, rec, wildcard)
+        if best is None or best[1][0] == "clear":
             continue
-        state, decisive = next((r for r in results if r[0][0] == "affected"), None) or \
-            next((r for r in results if r[0][0] == "inconclusive"), None) or results[0]
-        if state[0] == "clear":
-            continue
+        _, state, decisive, rec, wildcard = best
         cves = record_cves(rec)
         listed = [c for c in cves if c in kev]
         kev_dates = sorted(kev[c] for c in listed if kev[c])
@@ -647,9 +759,16 @@ def review_package(pkg, snapshot, kev, bound):
         row["reason"] = "No complete snapshot for this ecosystem was loaded."
     elif family == "Debian" and not snapshot.debian_release_covered(eco):
         best = max(snapshot.tracker.values(), default=0)
-        row["reason"] = (f"The loaded Debian data does not track open issues for {eco}: "
-                         f"{snapshot.tracker.get(eco, 0)} security-tracker entries, against {best} for the "
-                         "best-covered release. Fixed-advisory (DSA/DLA) records alone cannot rule out open issues.")
+        if best == 0:
+            row["reason"] = ("The loaded Debian data has no security-tracker (DEBIAN-*) records, so it cannot show "
+                             f"that open issues for {eco} are tracked.")
+        else:
+            row["reason"] = (f"The loaded Debian data does not track open issues for {eco}: "
+                             f"{snapshot.tracker.get(eco, 0)} security-tracker records, against {best} for the "
+                             "best-covered release. Fixed-advisory (DSA/DLA) records alone cannot rule out open issues.")
+    elif family == "Packagist" and eco != "Packagist" and eco not in snapshot.declared["Packagist"]:
+        row["reason"] = ("The loaded Packagist data has no records for this Composer repository. "
+                         "OSV's export covers packagist.org and packages.drupal.org.")
     elif COMPARATORS[family][0](version) is None:
         row["reason"] = "The version is outside the syntax this ecosystem defines."
     elif inconclusive:
@@ -688,6 +807,7 @@ def review(request, osv_args, kev_path):
         snapshot.load(family, path)
     if not snapshot.sources:
         raise ValueError("Supply an OSV snapshot with --osv or an inline snapshot.")
+    snapshot.resolve()
     kev, kev_meta = {}, None
     if "kev" in request:
         kev, version = load_kev(request["kev"])

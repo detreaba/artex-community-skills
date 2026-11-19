@@ -15,9 +15,9 @@ Take every list from the artifact that is actually deployed, such as the product
 
 | Ecosystem | `ecosystem` value | Where to read `name` and `version` |
 | --- | --- | --- |
-| Composer | `Packagist` | `vendor/composer/installed.json` in the deployed build. Composer names are case-insensitive, and a leading `v` is accepted. Packages from packages.drupal.org also use `Packagist`. |
+| Composer | `Packagist` | `vendor/composer/installed.json` in the deployed build. Composer names are case-insensitive, and a leading `v` is accepted. Packages from packages.drupal.org also use `Packagist`. For another Composer repository, such as a private Satis, use `Packagist:<repository URL>`. Such a package reads `unknown` unless the loaded data has records for that repository; affected matches are still reported. |
 | npm | `npm` | `node_modules/.package-lock.json` in the deployed build. Versions must be exact SemVer 2.0 strings. |
-| Debian | `Debian:<release>`, for example `Debian:12` | On the running system or image: `dpkg-query -W -f='${source:Package} ${source:Version}\n'`. Debian advisories name **source** packages (`openssl`, not `libssl3`) and source versions. Set `"source_package": true` only for entries taken this way. |
+| Debian | `Debian:<release>`, for example `Debian:12` | On the running system or image: `dpkg-query -W -f='${source:Package} ${source:Version}\n'`. Debian advisories name **source** packages (`openssl`, not `libssl3`) and source versions. Set `"source_package": true` only for entries taken this way. Names that break Debian Policy 5.6.1 read `unknown`. |
 
 Download the matching OSV exports on a connected machine, for example `https://osv-vulnerabilities.storage.googleapis.com/Packagist/all.zip`, `.../npm/all.zip` and `.../Debian/all.zip`. Copy them to the review machine without unpacking. To flag known exploitation, also download the CISA Known Exploited Vulnerabilities catalog (`known_exploited_vulnerabilities.json`). The result records each file's SHA-256 and the newest record time, so cite them.
 
@@ -45,12 +45,14 @@ The examples embed a small synthetic `snapshot`; real reviews pass the export fi
   - larger than 8 MiB (`oversized`).
 - Records whose ranges break the OSV schema are counted in `damaged_ranges`. They make only the packages they name `unknown`.
 - The checker can't tell a partial download from the full export, so use the official `all.zip` and cite its SHA-256.
+- **Duplicates.** When an advisory ID appears more than once, for example in two exports or in an inline snapshot and an export, the copy with the newest `modified` time is used, whatever the load order. A later withdrawal therefore removes the advisory. If the newest copies share a time, every one of them is evaluated and the most severe result is reported, so an active copy outweighs a withdrawn copy with the same time.
+- **Withdrawals.** `withdrawn` must be an RFC 3339 time. Any other value is counted in `withdrawn_ignored`, and the record stays active. The checker reads no clock, so it also honours a withdrawal dated in the future.
 
 Two rules keep results conservative:
 - **Composer versions** are compared under Composer's ordering and under OSV's own Packagist ordering, which is PHP's `version_compare`. The two disagree on short forms and prereleases: OSV sorts `8.4` before `8.4.0`, and `1.10.0-alpha` after `1.10`. When they disagree, that record is inconclusive.
 - **Debian coverage is judged per release.** OSV's fixed-advisory records (DSA/DLA) can't show that a release's open issues are tracked. So `no_matching_advisory` needs security-tracker records (`DEBIAN-*`) for that release, from a source declared as Debian.
   - The threshold is at least a quarter of the count for the best-covered release in the loaded data. This is a heuristic, relative to what was loaded.
-  - When this skill was written, Debian 12–14 each had over 55,000 tracker entries. Debian 11 had about 1,200 and older releases had none.
+  - When this skill was written, Debian 12–14 each had over 55,000 tracker records (`debian_tracker_records`). Debian 11 had about 1,200 and older releases had none.
   - Affected matches on an uncovered release are still reported.
 
 ## Interpret the result in ARTEX
@@ -72,7 +74,12 @@ Report `review_level` (`unreviewed`), the asset, build and inventory reference, 
 
   It is also `unknown` when Composer's and OSV's version orderings disagree, or when the loaded Debian data doesn't track open issues for that release.
 
-  It is also `unknown` when a record cannot be evaluated conclusively. One example is a version above a `last_affected` ceiling with no published fix, which can still be vulnerable. The advisory list shows each inconclusive record and why.
+  It is also `unknown` when a record can't be evaluated conclusively. The advisory list shows each inconclusive record and why. For example:
+  - a version above a `last_affected` ceiling with no published fix, which can still be vulnerable;
+  - a range whose `introduced` and `fixed` events share a version;
+  - a listed version outside the ecosystem's syntax, which therefore can't be ruled out. Composer development versions such as `2.2-dev` are the exception: they match only their exact string, because Composer never treats one as a tagged release.
+
+  A range whose `introduced` and `last_affected` events share a version affects exactly that version, as Drupal's contrib records use it. Versions above it read `unknown` under the ceiling rule.
 - `no_matching_advisory` means no record in the loaded snapshot covers this version. It is **not** a fix verdict:
   - OSV can lag vendor bulletins. When this skill was written, it lacked two advisories this pack reviews by hand.
   - It also cannot see local patches, vendored copies or packages missing from the inventory.
