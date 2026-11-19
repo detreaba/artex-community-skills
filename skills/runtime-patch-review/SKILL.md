@@ -26,6 +26,7 @@ Optional `applicability` evidence has its own `asset`, `build`, `ref`, and `cond
 | PHP session handling, CVE-2026-115560 | 19 Nov 2026 | `upload_progress_enabled` and `shared_session_serializer_mismatch`. Check whether processes sharing session storage use incompatible serializer settings. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-658j-r8rw-q6mx) |
 | Node.js HTTP/2 resource leak, CVE-2026-123865 | 11 Nov 2026 | `node_handles_http2` refers to the serving Node.js process. An edge proxy can terminate HTTP/2 independently. [Node.js bulletin](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases) |
 | PHP out-of-memory handling, CVE-2026-109618 | 21 Oct 2026 | `php_serves_web_requests` records whether the identified process handles web requests. PHP includes FPM, Apache mod_php, CGI, FrankenPHP and LiteSpeed. A memory-limit setting alone leaves applicability unknown. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) · [PHP release guidance](https://www.php.net/archive/2026.php#2026-10-21-5) |
+| PHP stale request state, CVE-2026-109619 | 21 Oct 2026 | Supply `php_serves_web_requests` and `worker_reused_across_requests` for the same serving deployment. Set the second field when the worker can handle successive PHP request lifecycles. A pool policy that retires each worker after one request establishes `false`. The output of a separate `php -v` leaves both the serving binary and its lifecycle unknown. [PHP advisory](https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp) |
 
 For example, this synthetic upstream inventory gives `affected_version` and the first fixed PHP 8.4 release, `8.4.27`. Applicability stays `unknown` until the owner supplies evidence of the process's web-serving role. For PHP 8.1 and older, a backport requires its own patch record.
 
@@ -37,6 +38,18 @@ For example, this synthetic upstream inventory gives `affected_version` and the 
     "runtime": "php", "version": "8.4.26", "origin": "upstream",
     "serving_process_verified": true
   }
+}
+```
+
+For CVE-2026-109619, this synthetic worker-pool record gives `affected_version`, first fixed `8.5.12`, and `conditions_present`. Omitting the worker reuse observation leaves applicability `unknown`.
+
+```json
+{
+  "advisory": "CVE-2026-109619",
+  "inventory": {"asset": "portal", "build": "image-12", "ref": "process-7",
+                "runtime": "php", "version": "8.5.11", "origin": "upstream", "serving_process_verified": true},
+  "applicability": {"asset": "portal", "build": "image-12", "ref": "pool-record-7",
+                    "conditions": {"php_serves_web_requests": true, "worker_reused_across_requests": true}}
 }
 ```
 
