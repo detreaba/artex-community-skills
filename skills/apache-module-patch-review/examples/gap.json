@@ -1,0 +1,17 @@
+{
+  "asset": "training-origin-a",
+  "build": "rollout-11",
+  "advisory": "CVE-2026-119618",
+  "evidence": {
+    "asset": "training-origin-a",
+    "build": "rollout-11",
+    "product": "apache-httpd",
+    "origin": "upstream",
+    "ref": "mapped-standalone-module",
+    "source": "serving_module_inventory",
+    "server_version": "2.4.71",
+    "module": "mod_http2",
+    "module_origin": "standalone-mod_h2",
+    "module_release": "2.0.42"
+  }
+}

@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -79,6 +80,26 @@ class PackageTests(unittest.TestCase):
         tests = self.skill / "tests"
         tests.rename(self.root / "unapproved")
         tests.symlink_to(self.root / "unapproved", target_is_directory=True)
+        with self.assertRaises(ValueError):
+            build(self.root)
+
+    def test_shared_reader_is_only_bundled_for_named_skills(self):
+        name = "nginx-worker-patch-review"
+        dest = self.root / "skills" / name
+        shutil.copytree(self.skill, dest)
+        (dest / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Fixture\n---\n")
+        shared = self.root / "shared"
+        shared.mkdir()
+        reader = shared / "advisory_evidence.py"
+        (shared / "local-record.json").write_text("private")
+        reader.write_text("# shared test code\n")
+        build(self.root)
+        for archive in (self.root / "dist").glob("*.zip"):
+            with ZipFile(archive) as bundle:
+                self.assertEqual(f"{archive.stem}/scripts/advisory_evidence.py" in bundle.namelist(), archive.stem == name)
+                self.assertFalse(any("local-record" in p for p in bundle.namelist()))
+        reader.unlink()
+        reader.symlink_to(self.root / "LICENSE")
         with self.assertRaises(ValueError):
             build(self.root)
 

@@ -1,0 +1,15 @@
+{
+  "asset": "training-db-primary",
+  "build": "deployment-12",
+  "advisory": "CVE-2026-120145",
+  "evidence": {
+    "asset": "training-db-primary",
+    "build": "deployment-12",
+    "product": "postgresql",
+    "origin": "upstream",
+    "ref": "backend-settings-a",
+    "source": "connected_server",
+    "server_version": "16.15",
+    "server_version_num": 160015
+  }
+}

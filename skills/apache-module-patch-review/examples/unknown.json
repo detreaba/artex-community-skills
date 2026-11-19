@@ -1,0 +1,14 @@
+{
+  "asset": "training-origin-a",
+  "build": "rollout-11",
+  "advisory": "CVE-2026-119618",
+  "evidence": {
+    "asset": "training-origin-a",
+    "build": "rollout-11",
+    "product": "apache-httpd",
+    "origin": "upstream",
+    "ref": "server-version-only",
+    "source": "server_banner",
+    "server_version": "2.4.71"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "asset": "training-edge-worker-a",
+  "build": "rollout-18",
+  "advisory": "CVE-2026-123007",
+  "evidence": {
+    "asset": "training-edge-worker-a",
+    "build": "rollout-18",
+    "product": "nginx-oss",
+    "origin": "upstream",
+    "ref": "installed-package-only",
+    "source": "installed_package",
+    "installed_version": "1.30.7"
+  }
+}
