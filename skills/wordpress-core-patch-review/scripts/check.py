@@ -186,8 +186,9 @@ def main():
         raw = sys.stdin.buffer.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             raise ValueError("Input exceeds the supported size.")
-        # RFC 8259: the body must be UTF-8; NaN and Infinity are not JSON.
-        text = raw.decode("utf-8")
+        # RFC 8259: the body must be UTF-8 (one leading byte-order mark is accepted, as Windows
+        # tools write one); NaN and Infinity are not JSON.
+        text = raw.decode("utf-8-sig")
         result = review(json.loads(text, object_pairs_hook=unique_keys,
                                    parse_constant=reject_constant, parse_float=finite_float))
     except (ValueError, RecursionError):

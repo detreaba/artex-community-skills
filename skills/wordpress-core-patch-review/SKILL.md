@@ -13,11 +13,11 @@ Read every value from the deployed site or its exact build. A staging copy, a ba
 
 | Field | Evidence to supply |
 | --- | --- |
-| `asset`, `build`, `ref` | Redacted identifiers for the site, the deployed build and the record holding the version. |
-| `version` | `$wp_version` from the deployed `wp-includes/version.php`, the output of `wp core version` on the site, or **Site Health → Info → WordPress → Version**. WordPress writes a branch's first release as `7.1`; `7.1.0` means the same release. Beta, RC and nightly versions return unknown. |
-| `origin` | `upstream` only for an unmodified wordpress.org release, including Composer installs of the official package. A host-maintained or patched core needs that maintainer's own record. |
+| `asset`, `build`, `ref` | Redacted identifiers for the site and the deployed build. `ref` names one record that holds both the version observation and the checksum result from the same run, such as saved output of `wp core version` and `wp core verify-checksums`. |
+| `version` | Read it from the serving install: `$wp_version` in the deployed `wp-includes/version.php`, `wp core version` run on the site, or **Site Health → Info → WordPress → Version**. Never take it from a Composer lockfile, `composer.json` or a deploy manifest, which describe what was meant to be deployed rather than what is serving. WordPress writes a branch's first release as `7.1`; `7.1.0` means the same release. Beta, RC and nightly versions return unknown. |
+| `origin` | `upstream` only for unmodified wordpress.org core files, whatever tool installed them. A host-maintained or patched core needs that maintainer's own record. |
 | `deployment_verified` | True only when the referenced record ties the version to this deployed build. |
-| `core_checksums_verified` | True only when `wp core verify-checksums` (or an equivalent comparison with the wordpress.org checksums for this release) passed on the same build. A fixed or not-affected verdict requires it. An affected version does not. |
+| `core_checksums_verified` | True only when `wp core verify-checksums` passed on the same build, or an equivalent comparison with the wordpress.org checksums for this release and locale. That command downloads the release's md5 checksums from WordPress.org and compares them with the installed core files. A pass shows the core files match the release. It says nothing about `wp-content`, which holds plugins, themes and uploads. A fixed or not-affected verdict requires it. An affected version does not. |
 
 Keep customer names, credentials and production data out of examples and chat.
 
@@ -44,8 +44,11 @@ Optional `applicability` evidence takes `asset`, `build`, `ref` and `conditions`
 
 Quote the advisory, its vendor advisory ID, the site, build and evidence references, and the KEV date.
 
-- `affected_version`: the deployed release is inside the vendor's affected range. Name `first_fixed_in_range` as the upgrade target and treat the case as urgent, because the advisory is KEV-listed. For CVE-2026-119977, exposure arises during full-package core updates on affected releases.
-- `vendor_fix_present`: the release includes the vendor's fix on its branch, and its core files match the wordpress.org checksums.
+- `affected_version`: the release record read from the serving install is inside the vendor's affected range.
+  - It says nothing about the state of the files, so it doesn't need checksums.
+  - Name `first_fixed_in_range` as the upgrade target and treat the case as urgent, because the advisory is KEV-listed.
+  - For CVE-2026-119977, exposure arises during full-package core updates on affected releases.
+- `vendor_fix_present`: a claim about the code. The release includes the vendor's fix on its branch, and its core files match the wordpress.org checksums for that release.
 - `outside_affected_range`: the vendor states that this release line is not affected. This is not the same as an applied fix.
 - `unknown`: the evidence is not enough. Use `patch_reason` to request it:
   - the deployed version record;

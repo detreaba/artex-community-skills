@@ -146,6 +146,13 @@ class WordPressCoreTests(unittest.TestCase):
                 self.assertEqual((code, result["error"]), (2, "invalid_input"))
                 self.assertNotIn("patch_status", result)
 
+    def test_utf8_byte_order_mark_is_accepted(self):
+        # PowerShell and other Windows tools write a UTF-8 BOM; the body is still UTF-8 JSON.
+        code, row = self.run_cli(b"\xef\xbb\xbf" + json.dumps(site(UPGRADE, "7.1.3")).encode())
+        self.assertEqual((code, row["patch_status"]), (0, "affected_version"))
+        code, row = self.run_cli(b"\xef\xbb\xbf\xef\xbb\xbf" + json.dumps(site(UPGRADE, "7.1.3")).encode())
+        self.assertEqual((code, row["error"]), (2, "invalid_input"))
+
     def test_documented_examples_through_cli(self):
         for example, want in (("gap", ("affected_version", "conditions_present")), ("pass", ("vendor_fix_present", "unknown")),
                               ("unknown", ("unknown", "unknown"))):
