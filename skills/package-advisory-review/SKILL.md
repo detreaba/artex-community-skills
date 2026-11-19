@@ -39,7 +39,10 @@ The input is one JSON object, as in the [affected](examples/gap.json), [no match
 
 The examples embed a small synthetic `snapshot`; real reviews pass the export files with `--osv`. Each `--osv` value names the export's family (`npm`, `Packagist` or `Debian`).
 - A file that doesn't mostly contain that family's records doesn't count as a snapshot.
-- A snapshot is `complete` when every record in it was read.
+- A snapshot is `complete` when every entry in it was read as a record. The family stays incomplete when any entry is:
+  - not a `.json` file (`skipped`);
+  - encrypted, corrupt or compressed with an unsupported method (`unreadable`);
+  - larger than 8 MiB (`oversized`).
 - Records whose ranges break the OSV schema are counted in `damaged_ranges`. They make only the packages they name `unknown`.
 - The checker can't tell a partial download from the full export, so use the official `all.zip` and cite its SHA-256.
 
@@ -56,7 +59,7 @@ Report `review_level` (`unreviewed`), the asset, build and inventory reference, 
 
 - `affected` means at least one non-withdrawn OSV record covers the installed version.
   - Name each advisory ID and CVE, and give `fixed_in` as the published fix to plan against.
-  - `kev_date_added` means CISA lists that CVE as exploited in the wild. Treat it as the top remediation priority.
+  - `kev_listed` means CISA lists that CVE as exploited in the wild. Treat it as the top remediation priority. `kev_date_added` gives the earliest catalog date, when the catalog has one.
   - `malicious` means the record reports a malicious release. Treat the build as potentially compromised and follow the owner's incident process rather than only upgrading.
   - Debian's own `distribution_urgency` is passed through, taken from the entry for the matched release. A value such as `unimportant` is Debian's triage, not a clean result.
   - `wildcard_package` means the record covers every package in that ecosystem or release, for example an end-of-life notice.
@@ -75,4 +78,4 @@ Report `review_level` (`unreviewed`), the asset, build and inventory reference, 
   - It also cannot see local patches, vendored copies or packages missing from the inventory.
   - Repeat with a fresh snapshot after each upgrade.
 
-Report an `invalid_input` result as a request to correct the inventory, the snapshot paths or the options. This release supports npm, Composer and Debian. Other ecosystems return `unknown` until their version ordering is added and tested.
+Report an `invalid_input` result as a request to correct the inventory, the snapshot paths or the options. The request must be UTF-8 JSON (one leading byte order mark is accepted) without duplicate keys, `NaN` or `Infinity`. This release supports npm, Composer and Debian. Other ecosystems return `unknown` until their version ordering is added and tested.

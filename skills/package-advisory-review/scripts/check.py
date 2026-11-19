@@ -12,14 +12,17 @@ The checker reads local files only and makes no network requests.
 """
 import hashlib
 import json
+import math
 import re
 import sys
 import zipfile
+import zlib
 from functools import cmp_to_key
 from pathlib import Path
 
 MAX_STDIN = 8 * 1024 * 1024
 MAX_RECORD = 8 * 1024 * 1024
+MAX_KEV = 32 * 1024 * 1024
 MAX_PACKAGES = 20_000
 MAX_FIELD = 256
 FAMILIES = ("npm", "Packagist", "Debian")
@@ -57,9 +60,13 @@ def semver_parse(value):
     return (int(major), int(minor), int(patch), 0, ids)
 
 
+# The suffix tail accepts the same strings as the earlier "(?:[.-]?[0-9]{1,9})*", but each digit
+# run has one parse, so a failed match backtracks in linear time. re.ASCII stops Unicode case
+# folding (for example U+017F matching the "s" of "stable").
 _COMPOSER = re.compile(
     r"[vV]?([0-9]{1,9})(?:\.([0-9]{1,9}))?(?:\.([0-9]{1,9}))?(?:\.([0-9]{1,9}))?"
-    r"(?:[._-]?(stable|beta|b|rc|alpha|a|patch|pl|p)((?:[.-]?[0-9]{1,9})*))?", re.IGNORECASE)
+    r"(?:[._-]?(stable|beta|b|rc|alpha|a|patch|pl|p)((?:[.-]?[0-9]+(?:[.-][0-9]+)*)?))?",
+    re.IGNORECASE | re.ASCII)
 _COMPOSER_RANK = {"alpha": 1, "a": 1, "beta": 2, "b": 2, "rc": 3, "stable": 4, "patch": 5, "pl": 5, "p": 5}
 
 
@@ -261,7 +268,8 @@ def evaluate_range(rng, version, ordering, ceiling_clear=False):
         else:
             key = parse(raw)
             if key is None:
-                return "inconclusive", f"Event version {raw!r} is outside the expected syntax.", []
+                shown = raw if len(raw) <= 64 else raw[:64] + "..."
+                return "inconclusive", f"Event version {shown!r} is outside the expected syntax.", []
         (limits if kind == "limit" else events).append((key, kind, raw))
     if limits and not any(cmp(v, key) < 0 for key, _, _ in limits):
         return "clear", "At or above every range limit.", []
@@ -330,8 +338,31 @@ def _str_list(value):
     return isinstance(value, list) and all(isinstance(x, str) for x in value)
 
 
+def _reject_constant(name):
+    raise ValueError(f"{name} is not valid JSON.")
+
+
+def _finite_float(text):
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("Number out of range.")
+    return value
+
+
+def strict_json(raw, unique=False):
+    """RFC 8259 JSON in UTF-8. One leading byte order mark is accepted; NaN, Infinity and
+    numbers that overflow to infinity are rejected."""
+    return json.loads(raw.decode("utf-8-sig"), object_pairs_hook=unique_keys if unique else None,
+                      parse_constant=_reject_constant, parse_float=_finite_float)
+
+
+def _short(value, limit=64):
+    """Echo a record-supplied value only when it is a short string."""
+    return value if isinstance(value, str) and len(value) <= limit else None
+
+
 def valid_record(rec):
-    if not isinstance(rec, dict) or not isinstance(rec.get("id"), str):
+    if not isinstance(rec, dict) or not isinstance(rec.get("id"), str) or not 0 < len(rec["id"]) <= MAX_FIELD:
         return False
     for key in ("aliases", "upstream"):
         if key in rec and not _str_list(rec[key]):
@@ -393,12 +424,13 @@ class Snapshot:
         if rec.get("withdrawn"):
             stats["withdrawn"] += 1
             return
-        modified = rec.get("modified")
-        if isinstance(modified, str) and modified > stats["newest_modified"]:
+        modified = _short(rec.get("modified"))
+        if modified is not None and modified > stats["newest_modified"]:
             stats["newest_modified"] = modified
         if stats.get("declares_debian") and rec["id"].startswith("DEBIAN-"):
             for eco in {e.get("package", {}).get("ecosystem", "") for e in rec.get("affected", [])}:
-                if eco.startswith("Debian:"):
+                # Release names are short; the length bound keeps record text out of the reported keys.
+                if eco.startswith("Debian:") and len(eco) <= 64:
                     self.tracker[eco] = self.tracker.get(eco, 0) + 1
         for entry in rec.get("affected", []):
             pkg = entry.get("package", {})
@@ -415,17 +447,32 @@ class Snapshot:
     @staticmethod
     def _new_stats(family, source, declares_debian):
         return {"family": family, "source": source, "sha256": None, "records": 0, "withdrawn": 0,
-                "invalid": 0, "unreadable": 0, "oversized": 0, "damaged_ranges": 0, "newest_modified": "",
-                "family_records": {}, "declares_debian": declares_debian}
+                "invalid": 0, "unreadable": 0, "oversized": 0, "skipped": 0, "damaged_ranges": 0,
+                "newest_modified": "", "family_records": {}, "declares_debian": declares_debian}
+
+    def _store(self, raw, stats):
+        if raw is None:
+            stats["unreadable"] += 1
+        elif len(raw) > MAX_RECORD:
+            stats["oversized"] += 1
+        else:
+            self._parse_into(raw, stats)
 
     def load(self, family, path):
+        # Every entry must be read as a record. Anything skipped, unreadable or oversized leaves
+        # the family incomplete, so it can only lead to "unknown", never to a clean result.
         stats = self._new_stats(family, path.name, family == "Debian")
         if path.is_dir():
-            for item in sorted(path.glob("*.json")):
-                if item.stat().st_size > MAX_RECORD:
-                    stats["oversized"] += 1
+            for item in sorted(path.iterdir()):
+                if not item.is_file() or item.suffix.lower() != ".json":
+                    stats["skipped"] += 1
                     continue
-                self._parse_into(item.read_bytes(), stats)
+                try:
+                    with open(item, "rb") as handle:
+                        raw = handle.read(MAX_RECORD + 1)
+                except OSError:
+                    raw = None
+                self._store(raw, stats)
         else:
             digest = hashlib.sha256()
             with open(path, "rb") as handle:
@@ -434,12 +481,23 @@ class Snapshot:
             stats["sha256"] = digest.hexdigest()
             with zipfile.ZipFile(path) as archive:
                 for info in archive.infolist():
-                    if info.is_dir() or not info.filename.endswith(".json"):
+                    if info.is_dir():
+                        continue
+                    if not info.filename.lower().endswith(".json"):
+                        stats["skipped"] += 1
                         continue
                     if info.file_size > MAX_RECORD:
                         stats["oversized"] += 1
                         continue
-                    self._parse_into(archive.read(info), stats)
+                    # Read at most MAX_RECORD + 1 bytes whatever the header claims, so a falsified
+                    # size cannot inflate an entry in memory. Encrypted, unsupported or corrupt
+                    # entries count as unreadable.
+                    try:
+                        with archive.open(info) as member:
+                            raw = member.read(MAX_RECORD + 1)
+                    except (RuntimeError, zipfile.BadZipFile, zlib.error, EOFError, OSError, ValueError):
+                        raw = None
+                    self._store(raw, stats)
         self._finish(family, stats)
 
     def load_inline(self, snapshot):
@@ -454,7 +512,7 @@ class Snapshot:
 
     def _parse_into(self, raw, stats):
         try:
-            rec = json.loads(raw)
+            rec = strict_json(raw)
         except (ValueError, RecursionError):
             stats["unreadable"] += 1
             return
@@ -466,7 +524,7 @@ class Snapshot:
         in_family = stats["family_records"].get(family, 0)
         needed = 0.9 * stats["records"] if declared_export else 1
         ok = (stats["records"] > 0 and in_family >= needed
-              and not (stats["invalid"] or stats["unreadable"] or stats["oversized"]))
+              and not (stats["invalid"] or stats["unreadable"] or stats["oversized"] or stats["skipped"]))
         self.complete[family] = (self.complete[family] and ok) if family in self.complete else ok
         if report:
             stats["complete"] = ok
@@ -492,15 +550,23 @@ def alias(value):
     return value if isinstance(value, str) and ALIAS.fullmatch(value) else None
 
 
+_KEV_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 def load_kev(data):
+    """Map each listed CVE to its earliest well-formed dateAdded, or None. Membership, not the
+    date, decides whether a CVE is listed."""
     vulns = data.get("vulnerabilities") if isinstance(data, dict) else None
     if not isinstance(vulns, list):
         raise ValueError("KEV catalog lacks a vulnerabilities list.")
     kev = {}
     for item in vulns:
         if isinstance(item, dict) and isinstance(item.get("cveID"), str):
-            kev[item["cveID"]] = str(item.get("dateAdded", ""))
-    return kev, str(data.get("catalogVersion", ""))
+            date = item.get("dateAdded")
+            date = date if isinstance(date, str) and _KEV_DATE.fullmatch(date) else None
+            dates = [d for d in (kev.get(item["cveID"]), date) if d]
+            kev[item["cveID"]] = min(dates) if dates else None
+    return kev, _short(data.get("catalogVersion"))
 
 
 def record_cves(rec):
@@ -556,14 +622,18 @@ def review_package(pkg, snapshot, kev, bound):
         if state[0] == "clear":
             continue
         cves = record_cves(rec)
-        kev_dates = sorted({kev[c] for c in cves if c in kev})
+        listed = [c for c in cves if c in kev]
+        kev_dates = sorted(kev[c] for c in listed if kev[c])
         # Urgency comes from the entry that produced the verdict, not from another release's entry.
         specific = decisive.get("ecosystem_specific")
-        urgency = specific.get("urgency") if isinstance(specific, dict) else None
+        urgency = _short(specific.get("urgency")) if isinstance(specific, dict) else None
+        summary = rec.get("summary")
         item = {"id": rec["id"], "cves": cves, "status": "affected" if state[0] == "affected" else "inconclusive",
-                "reason": state[1], "fixed_in": state[2][:5], "kev_date_added": kev_dates[0] if kev_dates else None,
-                "malicious": rec["id"].startswith("MAL-"), "summary": str(rec.get("summary", ""))[:200],
-                "modified": rec.get("modified")}
+                "reason": state[1], "fixed_in": state[2][:5], "kev_listed": bool(listed),
+                "kev_date_added": kev_dates[0] if kev_dates else None,
+                "malicious": rec["id"].startswith("MAL-"),
+                "summary": summary[:200] if isinstance(summary, str) else "",
+                "modified": _short(rec.get("modified"))}
         if urgency:
             item["distribution_urgency"] = urgency
         if wildcard:
@@ -623,8 +693,11 @@ def review(request, osv_args, kev_path):
         kev, version = load_kev(request["kev"])
         kev_meta = {"catalog_version": version, "source": "inline", "sha256": None}
     if kev_path is not None:
-        raw = kev_path.read_bytes()
-        file_kev, version = load_kev(json.loads(raw))
+        with open(kev_path, "rb") as handle:
+            raw = handle.read(MAX_KEV + 1)
+        if len(raw) > MAX_KEV:
+            raise ValueError("The KEV catalog exceeds the supported size.")
+        file_kev, version = load_kev(strict_json(raw))
         kev.update(file_kev)
         kev_meta = {"catalog_version": version, "source": kev_path.name, "sha256": hashlib.sha256(raw).hexdigest()}
     scope = {k: alias(inventory.get(k)) for k in ("asset", "build")}
@@ -634,7 +707,7 @@ def review(request, osv_args, kev_path):
     summary = {"packages": len(rows)}
     for status in ("affected", "unknown", "no_matching_advisory"):
         summary[status] = sum(r["status"] == status for r in rows)
-    summary["kev_listed"] = sum(any(a["kev_date_added"] and a["status"] == "affected" for a in r["advisories"])
+    summary["kev_listed"] = sum(any(a["kev_listed"] and a["status"] == "affected" for a in r["advisories"])
                                 for r in rows)
     summary["malicious_listed"] = sum(any(a["malicious"] and a["status"] == "affected" for a in r["advisories"])
                                       for r in rows)
@@ -661,10 +734,13 @@ def parse_args(argv):
             raise ValueError("Usage: check.py [--osv FAMILY=PATH ...] [--kev PATH] < request.json")
         value = items.pop(0)
         if flag == "--kev":
+            if not value.strip():
+                raise ValueError("Name the KEV catalog file.")
             kev = Path(value)
         else:
             family, sep, path = value.partition("=")
-            if not sep or family not in FAMILIES:
+            # An empty PATH would resolve to the current directory and be read as an export.
+            if not sep or family not in FAMILIES or not path.strip():
                 raise ValueError("Use --osv npm=PATH, --osv Packagist=PATH or --osv Debian=PATH.")
             osv.append((family, Path(path)))
     return osv, kev
@@ -678,17 +754,23 @@ def unique_keys(pairs):
 
 
 def main(argv=None):
+    # Output contract: exactly one JSON object on stdout, exit 0 with a result or exit 2 with
+    # invalid_input. RuntimeError covers RecursionError and NotImplementedError.
     try:
         osv_args, kev_path = parse_args(sys.argv[1:] if argv is None else argv)
-        raw = sys.stdin.buffer.read(MAX_STDIN + 1)
+        stream = getattr(sys.stdin, "buffer", None)
+        if stream is None:
+            raise ValueError("No request on standard input.")
+        raw = stream.read(MAX_STDIN + 1)
         if len(raw) > MAX_STDIN:
             raise ValueError("Input exceeds the supported size.")
-        result = review(json.loads(raw, object_pairs_hook=unique_keys), osv_args, kev_path)
-    except (ValueError, RecursionError, OSError, zipfile.BadZipFile, KeyError, TypeError):
+        result = review(strict_json(raw, unique=True), osv_args, kev_path)
+        text = json.dumps(result, allow_nan=False)
+    except (ValueError, RuntimeError, OSError, zipfile.BadZipFile, zlib.error, EOFError, KeyError, TypeError):
         print(json.dumps({"error": "invalid_input",
                           "detail": "Check the inventory, snapshot paths and options. No verdict was produced."}))
         return 2
-    print(json.dumps(result))
+    print(text)
     return 0
 
 

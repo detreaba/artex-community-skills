@@ -1,11 +1,14 @@
 """Offline regressions for the OSV package matcher: version ordering, OSV evaluation, coverage and evidence binding."""
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 
@@ -60,6 +63,41 @@ def request(packages, covers=("npm", "Packagist", "Debian"), advisories=None, ve
     return req
 
 
+def patch_central(path, name, *, flags=0, method=None, size=None):
+    """Rewrite one central-directory field of an entry, as a damaged or hostile export would."""
+    data = bytearray(Path(path).read_bytes())
+    pos = data.find(b"PK\x01\x02")
+    while pos != -1:
+        length = int.from_bytes(data[pos + 28:pos + 30], "little")
+        if data[pos + 46:pos + 46 + length] == name.encode():
+            data[pos + 8:pos + 10] = (int.from_bytes(data[pos + 8:pos + 10], "little") | flags).to_bytes(2, "little")
+            if method is not None:
+                data[pos + 10:pos + 12] = method.to_bytes(2, "little")
+            if size is not None:
+                data[pos + 24:pos + 28] = size.to_bytes(4, "little")
+            Path(path).write_bytes(bytes(data))
+            return
+        pos = data.find(b"PK\x01\x02", pos + 4)
+    raise AssertionError(f"{name} not found in {path}")
+
+
+def corrupt_data(path, name):
+    """Flip bytes inside an entry's compressed data."""
+    data = bytearray(Path(path).read_bytes())
+    pos = data.find(b"PK\x03\x04")
+    while pos != -1:
+        length = int.from_bytes(data[pos + 26:pos + 28], "little")
+        extra = int.from_bytes(data[pos + 28:pos + 30], "little")
+        if data[pos + 30:pos + 30 + length] == name.encode():
+            start = pos + 30 + length + extra
+            for i in range(start + 2, start + 12):
+                data[i] ^= 0xFF
+            Path(path).write_bytes(bytes(data))
+            return
+        pos = data.find(b"PK\x03\x04", pos + 4)
+    raise AssertionError(f"{name} not found in {path}")
+
+
 def pkg(eco, name, version, source=True):
     item = {"ecosystem": eco, "name": name, "version": version}
     if eco.startswith("Debian") and source:
@@ -68,14 +106,14 @@ def pkg(eco, name, version, source=True):
 
 
 class PackageAdvisoryTests(unittest.TestCase):
-    def run_cli(self, raw, *args):
+    def run_cli(self, raw, *args, timeout=60):
         cmd = [sys.executable, "-ISB", str(CHECK), *args]
-        result = subprocess.run(cmd, input=raw, capture_output=True, timeout=60)
+        result = subprocess.run(cmd, input=raw, capture_output=True, timeout=timeout)
         self.assertEqual(result.stderr, b"")
         return result.returncode, json.loads(result.stdout)
 
-    def status(self, data, *args):
-        code, out = self.run_cli(json.dumps(data).encode(), *args)
+    def status(self, data, *args, timeout=60):
+        code, out = self.run_cli(json.dumps(data).encode(), *args, timeout=timeout)
         self.assertEqual(code, 0, out)
         return out
 
@@ -320,6 +358,106 @@ class PackageAdvisoryTests(unittest.TestCase):
         out = self.status(request([pkg("npm", "beta", "1.0.0")], covers=("npm",), advisories=damaged))
         self.assertEqual((out["snapshots"][0]["damaged_ranges"], out["snapshots"][0]["complete"]), (1, True))
         self.assertEqual(out["packages"][0]["status"], "unknown")
+
+    def test_hostile_strings_fail_closed_in_bounded_time(self):
+        # Code review of c867711: the Composer pattern backtracked exponentially, and U+017F folded to "s".
+        # Run in a child with a deadline, so a regression fails quickly instead of hanging the suite.
+        evil = "1.0.0-p" + "1" * 240 + "x"
+        hostile = ADVISORIES + [rec("T-EVIL", "Packagist", "acme/evil", (ECO, [{"introduced": "0"}, {"fixed": evil}]))]
+        start = time.monotonic()
+        out = self.status(request([pkg("Packagist", "acme/http", "5.4.55"), pkg("Packagist", "acme/x", evil),
+                                   pkg("Packagist", "acme/evil", "1.0.0"), pkg("Packagist", "acme/y", "1.0.0-ſtable")],
+                                  advisories=hostile), timeout=20)
+        self.assertLess(time.monotonic() - start, 20)
+        self.assertEqual([p["status"] for p in out["packages"]], ["affected", "unknown", "unknown", "unknown"])
+        start = time.monotonic()  # 24 digits took about 2 s with the exponential pattern
+        self.assertIsNone(checker.composer_parse("1.0.0-p" + "1" * 24 + "x"))
+        self.assertLess(time.monotonic() - start, 0.5)
+
+    def test_output_is_strict_json_whatever_the_records_hold(self):
+        odd = rec("T-ODD", "npm", "odd", (SEMVER, [{"introduced": "0"}, {"fixed": "2.0.0"}]),
+                  summary={"not": "text"}, aliases=["CVE-2026-0003"])
+        odd["modified"] = [[[["deep"]]]]
+        odd["affected"][0]["ecosystem_specific"] = {"urgency": 5}
+        kev = {"catalogVersion": {"x": 1}, "vulnerabilities": [{"cveID": "CVE-2026-0003", "dateAdded": ""},
+                                                              {"cveID": "CVE-2026-0001", "dateAdded": None}]}
+        data = request([pkg("npm", "odd", "1.0.0"), pkg("npm", "alpha", "1.0.0")], covers=("npm",),
+                       advisories=ADVISORIES + [odd])
+        data["kev"] = kev
+        code, out = self.run_cli(json.dumps(data).encode())
+        self.assertEqual(code, 0)
+        # Record strings reach the output only in bounded form.
+        long_event = rec("T-LONG", "npm", "long", (SEMVER, [{"introduced": "0"}, {"fixed": "1" * 1_000_000}]))
+        long_release = rec("DEBIAN-LONG", "Debian:" + "9" * 100_000, "zlib", (ECO, [{"introduced": "0"}]))
+        big = self.status(request([pkg("npm", "long", "1.0.0"), pkg("Debian:12", "zlib", "1.0-1")],
+                                  covers=("npm", "Debian"), advisories=ADVISORIES + [long_event, long_release]))
+        self.assertLess(len(json.dumps(big)), 20_000)
+        self.assertEqual(big["packages"][0]["status"], "unknown")
+        item = out["packages"][0]["advisories"][0]
+        self.assertEqual((item["modified"], item["summary"], "distribution_urgency" in item), (None, "", False))
+        # KEV membership, not the date, marks a listed CVE.
+        self.assertEqual((item["kev_listed"], item["kev_date_added"]), (True, None))
+        self.assertEqual((out["summary"]["kev_listed"], out["kev"]["catalog_version"]), (2, None))
+        for raw in (b'{"inventory": NaN}', b'{"inventory": {"x": Infinity}}', b'{"inventory": {"x": 1e999}}',
+                    b"\xef\xbb\xbf\xef\xbb\xbf{}", json.dumps(data).encode("utf-16")):
+            with self.subTest(raw=raw[:30]):
+                self.assertEqual(self.run_cli(raw)[0], 2)
+        code, out = self.run_cli(b"\xef\xbb\xbf" + json.dumps(data).encode())
+        self.assertEqual((code, out["packages"][1]["status"]), (0, "affected"))
+        # A launcher that closes stdin gets the invalid_input object, not a traceback.
+        saved, sys.stdin = sys.stdin, None
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as captured:
+                self.assertEqual(checker.main([]), 2)
+        finally:
+            sys.stdin = saved
+        self.assertEqual(json.loads(captured.getvalue())["error"], "invalid_input")
+
+    def test_unreadable_export_entries_leave_the_family_incomplete(self):
+        npm_records = [r for r in ADVISORIES if r["affected"][0]["package"]["ecosystem"] == "npm"]
+        lodash = rec("T-LODASH", "npm", "lodash", (SEMVER, [{"introduced": "0"}]))
+        packages = [pkg("npm", "lodash", "4.17.20"), pkg("npm", "alpha", "1.0.1")]
+        with tempfile.TemporaryDirectory() as tmp:
+            upper = self.write_zip(tmp, "upper.zip", npm_records, extra={"T-LODASH.JSON": json.dumps(lodash)})
+            out = self.zip_status(packages, "--osv", f"npm={upper}")
+            self.assertEqual([p["status"] for p in out["packages"]], ["affected", "affected"])
+            cases = {"notes": {"extra": {"README.txt": "not a record"}},
+                     "encrypted": {"patch": {"flags": 0x1}}, "method": {"patch": {"method": 99}},
+                     "lying-size": {"patch": {"size": 100}}, "corrupt": {"corrupt": True}}
+            for label, spec in cases.items():
+                with self.subTest(case=label):
+                    body = json.dumps(lodash) + " " * 3_000_000
+                    path = Path(tmp) / f"{label}.zip"
+                    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+                        for i, record in enumerate(npm_records):
+                            archive.writestr(f"{record['id']}-{i}.json", json.dumps(record))
+                        archive.writestr("lodash.json", body)
+                        for entry, data in spec.get("extra", {}).items():
+                            archive.writestr(entry, data)
+                    if "patch" in spec:
+                        patch_central(path, "lodash.json", **spec["patch"])
+                    if spec.get("corrupt"):
+                        corrupt_data(path, "lodash.json")
+                    out = self.zip_status(packages, "--osv", f"npm={path}")
+                    source = out["snapshots"][0]
+                    if label == "notes":
+                        self.assertEqual((source["skipped"], out["packages"][0]["status"]), (1, "affected"))
+                    else:
+                        self.assertEqual((source["unreadable"], out["packages"][0]["status"]), (1, "unknown"))
+                    self.assertFalse(source["complete"])
+                    self.assertEqual(out["packages"][1]["status"], "affected")
+            folder = Path(tmp) / "records"
+            folder.mkdir()
+            (folder / "T-LODASH.JSON").write_text(json.dumps(lodash), encoding="utf-8")
+            (folder / "notes.txt").write_text("x", encoding="utf-8")
+            out = self.zip_status(packages, "--osv", f"npm={folder}")
+            self.assertEqual((out["snapshots"][0]["skipped"], out["packages"][0]["status"]), (1, "affected"))
+            self.assertFalse(out["snapshots"][0]["complete"])
+        # An empty PATH would otherwise read the current directory as the export.
+        valid = json.dumps(request(packages, covers=("npm",))).encode()
+        for args in (("--osv", "npm="), ("--osv", "npm= "), ("--kev", "")):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_cli(valid, *args)[0], 2)
 
     def test_snapshot_without_family_or_with_invalid_record_is_incomplete(self):
         self.assertEqual(self.one("npm", "mu", "1.0.0", covers=("Packagist",))["status"], "unknown")
