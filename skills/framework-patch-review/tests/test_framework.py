@@ -106,6 +106,7 @@ class FrameworkTests(unittest.TestCase):
             {"package": "drupal/core-recommended"}, {"package": "drupal/recommended-project"},
             {"deployment_verified": False}, {"origin": "distribution"},
             {"serving_core_version": "11.4.12"}, {"serving_core_version": "unverified"},
+            {"serving_core_version": "11.4.13-dev"},
         ):
             with self.subTest(fields=fields):
                 row = self.check(deployment(DRUPAL, "11.4.13", **fields))
@@ -135,6 +136,25 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(row["applicability"], "unknown")
         self.assertIsNone(row["version"])
         self.assertEqual(row["version_evidence"], {"composer": "11.3.22", "serving_core": "11.4.0"})
+        self.assertIn("serving core falls in the affected range", row["patch_reason"])
+
+    def test_drupal_names_each_affected_observation_on_disagreement(self):
+        for composer, serving, origin, affected_sources in (
+            ("11.4.13", "11.4.12", "upstream", {"serving core"}),
+            (None, "11.4.12", "upstream", {"serving core"}),
+            ("11.4.0", "11.3.22", "upstream", {"Composer package"}),
+            ("11.4.0", "11.4.12", "upstream", {"Composer package", "serving core"}),
+            ("11.4.13", "11.3.22", "upstream", set()),
+            ("11.4.13", "11.4.12", "distribution", set()),
+        ):
+            with self.subTest(composer=composer, serving=serving, origin=origin):
+                row = self.check(deployment(DRUPAL, composer, serving_core_version=serving, origin=origin))
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"], row["version"]),
+                                 ("unknown", None, None))
+                self.assertEqual(row["version_evidence"], {"composer": composer, "serving_core": serving})
+                for source in ("Composer package", "serving core"):
+                    self.assertEqual(f"{source} falls in the affected range" in row["patch_reason"],
+                                     source in affected_sources)
 
     def test_drupal_packaged_example_has_no_exposure_verdict(self):
         data = json.loads((ROOT / "examples" / f"{DRUPAL}.json").read_bytes())

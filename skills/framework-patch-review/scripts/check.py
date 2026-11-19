@@ -153,13 +153,15 @@ def review(request):
                                                      "serving_core": ".".join(map(str, serving)) if serving else None}}
         if inventory.get("origin") != "upstream":
             detail = "The supplied package origin requires separate vendor or backport evidence."
+        elif version_evidence:
+            observations = (("Composer package", parsed), ("serving core", serving))
+            flags = [f"The {source} falls in the affected range." for source, version in observations
+                     if version is not None and classify(profile, version)[0] == "affected_version"]
+            detail = " ".join(flags + ["Prioritize reconciling the deployment records."]) if flags else (
+                "The Composer and serving core observations do not establish a matching release. Reconcile the deployment records."
+            )
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
-        elif version_evidence:
-            if classify(profile, parsed)[0] == "affected_version":
-                detail = "The Composer package falls in the affected range. Prioritize checking the conflicting or missing serving core observation."
-            else:
-                detail = "The Composer and serving core observations do not establish a matching release. Reconcile the deployment records."
         else:
             status, fixed, detail = classify(profile, parsed)
         if version_evidence:
