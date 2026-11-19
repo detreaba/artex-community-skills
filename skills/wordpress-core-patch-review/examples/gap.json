@@ -1,0 +1,21 @@
+{
+  "advisory": "CVE-2026-87902",
+  "inventory": {
+    "asset": "training-blog",
+    "build": "release-31",
+    "ref": "site-health-export-31",
+    "version": "6.9.8",
+    "origin": "upstream",
+    "deployment_verified": true,
+    "core_checksums_verified": true
+  },
+  "applicability": {
+    "asset": "training-blog",
+    "build": "release-31",
+    "ref": "theme-and-php-review-31",
+    "conditions": {
+      "theme_has_page_prefixed_directory": true,
+      "includable_php_target_readable": true
+    }
+  }
+}

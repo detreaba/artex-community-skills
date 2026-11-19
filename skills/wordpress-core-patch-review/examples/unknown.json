@@ -1,0 +1,12 @@
+{
+  "advisory": "CVE-2026-119977",
+  "inventory": {
+    "asset": "training-blog",
+    "build": "release-32",
+    "ref": "wp-cli-core-version-32",
+    "version": "7.1.4",
+    "origin": "upstream",
+    "deployment_verified": true,
+    "core_checksums_verified": false
+  }
+}
