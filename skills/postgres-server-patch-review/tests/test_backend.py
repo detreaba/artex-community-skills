@@ -36,12 +36,28 @@ class BackendTests(unittest.TestCase):
                 self.assertEqual((row["patch_status"], row["applicability"]), (expected, "unknown"))
 
     def test_all_documented_major_boundaries(self):
-        for suffix, starts in (("116316", 14), ("120145", 14), ("116310", 17), ("116328", 16)):
-            for major, cutoff in ((14, 25), (15, 20), (16, 16), (17, 12), (18, 7)):
-                for minor in (cutoff - 1, cutoff):
+        # Sorted by advisory ID. Independent expectations below are transcribed
+        # by PostgreSQL release line from the publisher's November 12 tables.
+        advisories = (
+            "116303 116304 116306 116310 116311 116312 116315 116316 116317 "
+            "116321 116322 116327 116328 116329 116331 116332 116333 116335 116336 "
+            "120139 120141 120142 120143 120144 120145 120146 120148 120149 120150 "
+            "120152 120153 120154"
+        ).split()
+        for major, cutoff, excluded in (
+            (14, 25, {"116310", "116312", "116322", "116328", "116329", "116333", "120142", "120144", "120152"}),
+            (15, 20, {"116310", "116322", "116328", "116329", "116333", "120142", "120144", "120152"}),
+            (16, 16, {"116310", "116322", "116329", "116333", "120142", "120144"}),
+            (17, 12, {"116322", "116329", "120144"}),
+            (18, 7, set()),
+        ):
+            for suffix in advisories:
+                for minor in (cutoff - 1, cutoff, cutoff + 1):
                     with self.subTest(cve=suffix, major=major, minor=minor):
                         row = check(suffix, f"{major}.{minor}", str(major * 10000 + minor))
-                        if major < starts:
+                        self.assertEqual(row["sources"], [f"https://www.postgresql.org/support/security/CVE-2026-{suffix}/"])
+                        self.assertEqual(row["applicability"], "unknown")
+                        if suffix in excluded:
                             self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("outside_affected_range", None))
                         else:
                             self.assertEqual(row["patch_status"], "affected_version" if minor < cutoff else "vendor_fix_present")
@@ -53,3 +69,11 @@ class BackendTests(unittest.TestCase):
                                 ("13.20", 130020), ("16.16 (local build)", 160016)):
             with self.subTest(version=version, number=number):
                 self.assertEqual(check("116316", version, number)["patch_status"], "unknown")
+
+    def test_plpgsql_requires_its_own_module_evidence(self):
+        request = json.loads((ROOT / "examples/pass.json").read_text())
+        request["advisory"] = "CVE-2026-120151"
+        run = subprocess.run([sys.executable, "-ISB", str(ROOT / "scripts/check.py")],
+                             input=json.dumps(request), text=True, capture_output=True)
+        self.assertEqual(run.returncode, 2)
+        self.assertEqual(json.loads(run.stdout)["error"], "invalid_input")
