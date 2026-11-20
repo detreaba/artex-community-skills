@@ -86,13 +86,14 @@ class Fixture:
     KEXINIT packet, then closes."""
 
     def __init__(self, banner, packet=b"", send_packet=True, proactive=False,
-                 wait_ident=False, write_close=False):
+                 wait_ident=False, write_close=False, wait_kexinit=False):
         self.banner = banner
         self.packet = packet
         self.send_packet = send_packet
         self.proactive = proactive
         self.wait_ident = wait_ident
         self.write_close = write_close
+        self.wait_kexinit = wait_kexinit
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("127.0.0.1", 0))
@@ -110,10 +111,23 @@ class Fixture:
             conn.settimeout(5)
             if self.write_close:
                 # Server sends banner + KEXINIT, then closes WITHOUT reading the
-                # observer's writes (no drain), so the observer's later KEXINIT send
-                # fails. The already-sent bytes stay readable on POSIX.
+                # observer's writes (no drain), so the observer's pipelined
+                # identification+KEXINIT send may fail. The already-sent bytes stay
+                # readable on POSIX.
                 conn.sendall(self.banner + (self.packet if self.send_packet else b""))
                 conn.close()
+            elif self.wait_kexinit:
+                # Server withholds its identification until it has read BOTH the
+                # client's SSH- line and a full KEXINIT, then sends banner + KEXINIT.
+                # If no client KEXINIT arrives (observer did not pipeline it), it
+                # sends NOTHING -- so the observer only sees a reply when it pipelines.
+                try:
+                    self._read_client_kexinit(conn)
+                except OSError:
+                    conn.close()
+                    return
+                conn.sendall(self.banner + (self.packet if self.send_packet else b""))
+                self._drain(conn)
             elif self.wait_ident:
                 # Server withholds its identification string until it has read the
                 # client's SSH- identification line, then sends banner + KEXINIT.
@@ -779,12 +793,29 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(out["per_category"]["kex"], "gap")
         self.assertEqual(out["overall"], "gap")
 
+    def test_waits_for_client_kexinit_before_banner(self):
+        # F-SSH-24: a server that withholds its identification until it has read the
+        # client's SSH- line AND a full KEXINIT. observe.py pipelines its ident and
+        # KEXINIT (RFC 4253 Sec. 5.2), so the server's KEXINIT -- with a forbidden
+        # kex -- is still captured -> gap, not a deadlock -> unknown.
+        packet = build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-WaitKexinit_1.0\r\n", packet, wait_kexinit=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["kex"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
     @unittest.skipIf(sys.platform.startswith("win"),
                      "Windows recv discards buffered data on RST; validated on Linux CI")
     def test_peer_closes_before_observer_finishes_sending(self):
-        # The observer's best-effort KEXINIT send fails against a peer that already
-        # sent its banner + KEXINIT (forbidden kex) and closed; the send failure
-        # must be noted, not fatal, so the KEXINIT already received is still parsed
+        # The observer's best-effort pipelined send fails against a peer that
+        # already sent its banner + KEXINIT (forbidden kex) and closed; the send
+        # failure must be noted, not fatal, so the KEXINIT already received is parsed
         # -> gap, never discarded to unknown. (POSIX keeps the buffered bytes
         # readable after the peer's close; Windows recv may not, hence skipped.)
         packet = build_kexinit(
