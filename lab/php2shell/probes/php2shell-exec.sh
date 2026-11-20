@@ -23,7 +23,7 @@ for P in pocs/php2shell-618.py pocs/php2shell-619.py; do
 done
 if [ "$HIT" = 1 ]; then
   [ "$VARIANT" = patched ] && echo "# VERDICT: inconclusive in-band execution on patched half (unexpected)" \
-                            || echo "# VERDICT: vulnerable rce-confirmed-in-band"
+                            || echo "# VERDICT: vulnerable exec-confirmed-in-band"
 else
   [ "$VARIANT" = patched ] && echo "# VERDICT: not-vulnerable no execution on patched half" \
                             || echo "# VERDICT: inconclusive no execution on vulnerable half (shape/timing)"

