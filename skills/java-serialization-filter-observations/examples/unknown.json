@@ -1,0 +1,9 @@
+{
+  "inventory": {
+    "asset": "training-app", "build": "release-42", "instance": "jvm-start-7", "ref": "recording-d",
+    "jdk_major": 21, "deployment_verified": true
+  },
+  "export_complete": true,
+  "loss_events_included": true,
+  "recording": {"events": []}
+}
