@@ -133,6 +133,55 @@ class VerdictRules(unittest.TestCase):
         self.assertEqual(out["overall"], "unknown")
 
 
+class OverlapAndFailClosed(unittest.TestCase):
+    def test_overlap_negotiated_is_gap_not_pass(self):
+        # A version in both lists must not let must_accept's pass overwrite
+        # must_refuse's gap (the false-clean the verification caught).
+        rec = _record(["1.0"], ["1.0"],
+                      [_att("1.0", "negotiated", negotiated="TLSv1")],
+                      control_class="negotiated")
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_version"]["1.0"]["verdict"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_realistic_overlap_gap(self):
+        rec = _record(["1.0", "1.1"], ["1.1", "1.2", "1.3"],
+                      [_att("1.0", "version_refused", reason="TLSV1_ALERT_PROTOCOL_VERSION"),
+                       _att("1.1", "negotiated", negotiated="TLSv1.1"),
+                       _att("1.2", "negotiated", negotiated="TLSv1.2"),
+                       _att("1.3", "negotiated", negotiated="TLSv1.3")])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_version"]["1.1"]["verdict"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_non_list_policy_fields_fail_closed(self):
+        out = check.evaluate({"policy": {"must_refuse": True, "must_accept": "1.2"},
+                              "attempts": [_att("1.0", "negotiated", negotiated="TLSv1")],
+                              "control": {"class": "negotiated"}})
+        self.assertEqual(out["overall"], "unknown")
+
+    def test_falsy_error_key_is_unknown(self):
+        out = check.evaluate({"error": "", "policy": {"must_accept": ["1.2"]},
+                              "attempts": [_att("1.2", "negotiated", negotiated="TLSv1.2")],
+                              "control": {"class": "negotiated"}})
+        self.assertEqual(out["overall"], "unknown")
+
+    def test_malformed_inner_types_fail_closed(self):
+        for payload in (b'{"attempts":[null],"policy":{"must_refuse":["1.0"]}}',
+                        b'{"control":"negotiated","policy":{"must_accept":["1.2"]}}',
+                        b'{"must_refuse":1.0}'):
+            proc = subprocess.run([sys.executable, "-B", str(SCRIPTS / "check.py")],
+                                  input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+            self.assertEqual(json.loads(proc.stdout.decode("utf-8"))["overall"], "unknown")
+
+    def test_deeply_nested_json_fail_closed(self):
+        proc = subprocess.run([sys.executable, "-B", str(SCRIPTS / "check.py")],
+                              input=b"[" * 100000, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+        self.assertEqual(json.loads(proc.stdout.decode("utf-8"))["overall"], "unknown")
+
+
 class CheckCli(unittest.TestCase):
     def test_runs_as_script_on_example(self):
         proc = subprocess.run([sys.executable, "-B", str(SCRIPTS / "check.py")],
