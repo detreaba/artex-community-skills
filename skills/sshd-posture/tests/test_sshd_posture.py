@@ -203,6 +203,22 @@ class VerdictRules(unittest.TestCase):
         self.assertEqual(out["per_category"]["cipher"], "gap")
         self.assertEqual(out["overall"], "gap")
 
+    def test_forbidden_cipher_in_s2c_direction_only_is_gap(self):
+        # F-SSH-11: required cipher only in enc_c2s, forbidden cipher only in
+        # enc_s2c -- the cipher category unions both directions.
+        out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],
+                                       encryption_s2c=["3des-cbc"]))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_forbidden_mac_in_s2c_direction_only_is_gap(self):
+        # F-SSH-12 preview: forbidden MAC only in mac_s2c -- the mac category
+        # unions both directions.
+        out = check.evaluate(self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                                       mac_s2c=["hmac-md5"]))
+        self.assertEqual(out["per_category"]["mac"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")
