@@ -3,7 +3,7 @@ php2shell	run	probes/php2shell-exec.sh after fixture-profile switch (owner worki
 node2shell	run	probes/br-behavior.py — re-record after next shape tweak	2026-11-20T05:40Z
 general	verify	diff any new evidence dir against the prior one for the same slug; report deltas	2026-11-20T05:40Z
 # re-measure per build: run maps-extract after image change
-2026-11-20T07:26:22Z | codex | blocked | #64 squash-merged into main (https://github.com/detreaba/artex-community-skills/pull/64). #63 held because its harness runs exploit payloads (https://github.com/detreaba/artex-community-skills/pull/63).
+2026-11-20T07:26:22Z | codex | blocked | #64 squash-merged into main (https://github.com/detreaba/artex-community-skills/pull/64). #63 held pending owner sign-off (opaque payload harness) (https://github.com/detreaba/artex-community-skills/pull/63).
 2026-11-20T07:27:40Z | owner | done | #63 merged by owner override (hold reason addressed in PR comment); Phase 0 machinery complete: tls-protocol-check + lab harness in main
 2026-11-20T07:32:57Z | codex | verified php2shell capture against 20261120T064655Z by SHA-256 and cmp. Both stdout files differed. Both stderr files and both metadata files matched. | php2shell/evidence/20261120T070536Z
 2026-11-20T07:49:07Z | codex | Compared node2shell capture with 20261120T042447Z using SHA-256 and cmp. Both stdout files differed. Both stderr files and both metadata files matched. | node2shell/evidence/20261120T045726Z
