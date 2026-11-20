@@ -1,0 +1,32 @@
+{
+  "skill": "sshd-posture",
+  "observation_version": 1,
+  "authorization_ref": "SYNTHETIC-EXAMPLE loopback fixture; not a real engagement",
+  "target": {"host": "127.0.0.1", "port": 2222, "address": "127.0.0.1"},
+  "banner": "SSH-2.0-OpenSSH_9.6",
+  "protocol": "2.0",
+  "software": "OpenSSH_9.6",
+  "kexinit_read": true,
+  "kex_algorithms": ["curve25519-sha256", "curve25519-sha256@libssh.org", "ecdh-sha2-nistp256", "diffie-hellman-group-exchange-sha256"],
+  "server_host_key_algorithms": ["ssh-ed25519", "rsa-sha2-512", "rsa-sha2-256"],
+  "encryption_c2s": ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com", "aes128-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"],
+  "encryption_s2c": ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com", "aes128-gcm@openssh.com", "aes256-ctr", "aes192-ctr", "aes128-ctr"],
+  "mac_c2s": ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "umac-128-etm@openssh.com"],
+  "mac_s2c": ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com", "umac-128-etm@openssh.com"],
+  "compression_c2s": ["none", "zlib@openssh.com"],
+  "compression_s2c": ["none", "zlib@openssh.com"],
+  "connections_made": 1,
+  "policy": {
+    "forbidden": {
+      "kex": ["diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1"],
+      "hostkey": ["ssh-dss", "ssh-rsa"],
+      "cipher": ["3des-cbc", "aes128-cbc", "aes256-cbc", "arcfour", "arcfour128", "arcfour256"],
+      "mac": ["hmac-md5", "hmac-md5-96", "hmac-sha1-96", "umac-64@openssh.com"]
+    },
+    "required": {
+      "kex": ["curve25519-sha256", "curve25519-sha256@libssh.org"],
+      "cipher": ["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com"],
+      "mac": ["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"]
+    }
+  }
+}
