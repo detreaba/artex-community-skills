@@ -4,6 +4,7 @@
     "jdk_major": 21, "deployment_verified": true
   },
   "export_complete": true,
+  "loss_events_included": true,
   "recording": {
     "events": [
       {"type": "jdk.Deserialization", "values": {"filterConfigured": true, "filterStatus": "UNDECIDED"}},

@@ -21,7 +21,7 @@ def request(*events, complete=True):
     return {
         "inventory": {"asset": "training-app", "build": "release-42", "instance": "jvm-start-7",
                       "ref": "recording-a", "jdk_major": 21, "deployment_verified": True},
-        "export_complete": complete,
+        "export_complete": complete, "loss_events_included": True,
         "recording": {"events": list(events)},
     }
 
@@ -70,6 +70,36 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(self.review(request(event(False, None), event(False, "ALLOWED")))["status"], ABSENT)
         self.assertEqual(self.review(request(unrelated, event(True, "REJECTED")))["status"], SEEN)
 
+    def test_loss_witness_and_deserialization_only_exports(self):
+        loss = {"type": "jdk.DataLoss"}
+        for sequence in ((event(True, "ALLOWED"), loss), (loss, event(True, None))):
+            row = self.review(request(*sequence))
+            self.assertEqual((row["status"], row["export_coverage"], row["data_loss_events"]), ("unknown", "partial", 1))
+        row = self.review(request(loss, event(False, None), loss))
+        self.assertEqual((row["status"], row["export_coverage"], row["data_loss_events"]), (ABSENT, "partial", 2))
+        for marker, coverage in ((False, "partial"), (None, "unknown")):
+            data = request(event(True, "UNDECIDED"))
+            if marker is None:
+                del data["loss_events_included"]
+            else:
+                data["loss_events_included"] = marker
+            row = self.review(data)
+            self.assertEqual((row["status"], row["export_coverage"]), ("unknown", coverage))
+            self.assertEqual(row["observations"]["filter_present"], 1)
+
+    def test_jvm_identity_disagreement_invalidates_even_an_observed_absence(self):
+        def info(pid, stamp):
+            return {"type": "jdk.JVMInformation", "values": {"pid": pid, "jvmStartTime": stamp}}
+        stamp = "2026-11-19T10:20:30.123Z"
+        valid = info(203, stamp)
+        self.assertEqual(self.review(request(valid, event(True, None), valid))["status"], SEEN)
+        for bad in (info(204, stamp), info(203, "2026-11-19T10:21:30Z"), info(True, stamp),
+                    info(0, stamp), info(203, ""), info(203, "unreadable"), {"type": "jdk.JVMInformation"}):
+            for seq in ((valid, event(False, None), bad), (bad, event(False, None), valid)):
+                row = self.review(request(*seq))
+                self.assertEqual((row["status"], row["observations"], row["export_coverage"]), ("unknown", None, "unknown"))
+                self.assertNotIn(stamp, json.dumps(row))
+
     def test_generation_and_attribution_required(self):
         for k, v in (("asset", ""), ("build", " "), ("instance", None), ("ref", "/tmp/private"),
                      ("jdk_major", 17), ("jdk_major", "21"), ("jdk_major", 21.0),
@@ -99,7 +129,7 @@ class ObservationTests(unittest.TestCase):
             self.assertNotIn(secret, out)
 
     def test_invalid_input_returns_one_json_error(self):
-        for raw in (b'{"export_complete":true,"export_complete":false}', b'{"inventory":[]}',
+        for raw in (b'{"export_complete":true,"export_complete":false}', b'{"loss_events_included":1}', b'{"inventory":[]}',
                     b'{"recording":{"events":"invalid"}}', b'{"export_complete":1}',
                     b'{"recording":{"events":[NaN]}}', b'{"recording":', b'[]', b'\xff'):
             with self.subTest(raw=raw):

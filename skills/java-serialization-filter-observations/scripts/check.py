@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from datetime import datetime
 
 
 EVENT = "jdk.Deserialization"
@@ -37,11 +38,25 @@ def observation(event):
     return "unusable"
 
 
+def jvm_identity(values):
+    if not isinstance(values, dict):
+        return None
+    pid, start = values.get("pid"), values.get("jvmStartTime")
+    if type(pid) is not int or pid <= 0 or not isinstance(start, str) or "T" not in start:
+        return None
+    try:
+        parsed = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (pid, start) if parsed.tzinfo is not None else None
+
+
 def review(data):
-    fields(data, {"inventory", "export_complete", "recording"})
+    fields(data, {"inventory", "export_complete", "loss_events_included", "recording"})
     inventory = fields(data.get("inventory", {}), {"asset", "build", "instance", "ref", "jdk_major", "deployment_verified"})
     complete = data.get("export_complete")
-    if complete is not None and type(complete) is not bool:
+    includes_loss = data.get("loss_events_included")
+    if any(v is not None and type(v) is not bool for v in (complete, includes_loss)):
         raise ValueError("Invalid completeness flag.")
     recording = fields(data.get("recording", {}), {"events"})
     events = recording.get("events")
@@ -51,7 +66,8 @@ def review(data):
     ref = alias(inventory.get("ref"))
     result = {
         "status": "unknown", "reason": "A verified JDK 21 recording for one serving JVM generation is required.",
-        "scope": scope, "evidence_refs": {"recording": ref}, "observations": None, "export_coverage": "unknown",
+        "scope": scope, "evidence_refs": {"recording": ref}, "observations": None,
+        "data_loss_events": None, "export_coverage": "unknown",
     }
     major = inventory.get("jdk_major")
     if (not all(scope.values()) or not ref or inventory.get("deployment_verified") is not True
@@ -62,14 +78,28 @@ def review(data):
         return result
 
     counts = {"filter_present": 0, "filter_absent": 0, "unusable": 0}
+    loss_count = 0
+    identity = None
     for event in events:
+        kind = event.get("type") if isinstance(event, dict) else None
+        if kind == "jdk.DataLoss":
+            loss_count += 1
+            continue
+        if kind == "jdk.JVMInformation":
+            current = jvm_identity(event.get("values"))
+            if current is None or (identity is not None and current != identity):
+                result["reason"] = "The JVM information records cannot establish one consistent process and start."
+                return result
+            identity = current
+            continue
         key = observation(event)
         if key is not None:
             counts[key] += 1
     result["observations"] = counts
-    if complete is False or counts["unusable"]:
+    result["data_loss_events"] = loss_count
+    if complete is False or includes_loss is False or loss_count or counts["unusable"]:
         result["export_coverage"] = "partial"
-    elif complete is True:
+    elif complete is True and includes_loss is True:
         result["export_coverage"] = "complete"
 
     if counts["filter_absent"]:
@@ -82,6 +112,8 @@ def review(data):
     else:
         result.update(status="filter_seen_on_recorded_checks",
                       reason="Every recorded deserialization check in this export had a stream filter.")
+    if loss_count:
+        result["reason"] += " The recording reports data loss."
     return result
 
 
