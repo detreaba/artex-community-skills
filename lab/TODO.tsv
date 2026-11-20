@@ -3,3 +3,5 @@ php2shell	run	probes/php2shell-exec.sh after fixture-profile switch (owner worki
 node2shell	run	probes/br-behavior.py — re-record after next shape tweak	2026-11-20T05:40Z
 general	verify	diff any new evidence dir against the prior one for the same slug; report deltas	2026-11-20T05:40Z
 # re-measure per build: run maps-extract after image change
+2026-11-20T07:26:22Z | codex | blocked | #64 squash-merged into main (https://github.com/detreaba/artex-community-skills/pull/64). #63 held because its harness runs exploit payloads (https://github.com/detreaba/artex-community-skills/pull/63).
+2026-11-20T07:27:40Z | owner | done | #63 merged by owner override (hold reason addressed in PR comment); Phase 0 machinery complete: tls-protocol-check + lab harness in main
