@@ -13,6 +13,25 @@ DJANGO_CACHE_WINDOWS = (
 )
 DJANGO_BULLETIN = "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/"
 NEXT_ADVISORIES = "https://github.com/vercel/next.js/security/advisories/"
+# Stable tags in Packagist's livewire/livewire index on 2026-11-20.
+# Each row gives the last published patch for minor 0, minor 1, and so on.
+LIVEWIRE_LAST_PATCH = {
+    0: (15, 6, 10, 21, 0, 3, 0, 4),
+    1: (14, 0, 0, 9),
+    2: (4, 4, 9, 18, 4, 5, 7, 2, 2, 0, 8, 3, 8),
+    3: (10, 0, 6, 5, 12, 20, 4, 15, 11),
+}
+LIVEWIRE_AFFECTED_BETAS = {f"3.0.0-beta.{n}" for n in range(1, 12)}
+
+
+def livewire_tag_ranges(majors):
+    for major in majors:
+        for minor, last in enumerate(LIVEWIRE_LAST_PATCH[major]):
+            # 0.0 and 0.1 began at patch 1. Every other line began at 0.
+            first = 1 if major == 0 and minor < 2 else 0
+            yield (major, minor, first), (major, minor, last + 1)
+
+
 # Both November 18 core advisories publish the same affected windows. Legacy
 # branches can require an upgrade to reach the first supported fix.
 DRUPAL_NOV_18 = {
@@ -25,6 +44,18 @@ DRUPAL_NOV_18 = {
     "conditions": (),
 }
 ADVISORIES = {
+    "CVE-2025-54068": {
+        "ecosystem": "composer", "package": "livewire/livewire", "published": "2025-07-17",
+        "reviewed": "2026-11-20",
+        "windows": tuple((start, (3, 6, 4), end) for start, end in livewire_tag_ranges((3,))),
+        "outside": tuple(livewire_tag_ranges((0, 1, 2))),
+        "conditions": ("livewire_component_mounted",),
+        "additional_configuration_undisclosed": True,
+        "sources": ["https://github.com/livewire/livewire/security/advisories/GHSA-29cq-5w36-x7w3",
+                    "https://www.cve.org/CVERecord?id=CVE-2025-54068",
+                    "https://github.com/livewire/livewire/releases/tag/v3.6.4",
+                    "https://github.com/advisories/GHSA-29cq-5w36-x7w3"],
+    },
     "CVE-2026-132165": {
         **DRUPAL_NOV_18,
         "sources": ["https://www.drupal.org/sa-core-2026-017"],
@@ -125,6 +156,8 @@ def feature_status(profile, config, scope):
         return "unknown", None
     if any(conditions.get(k) is False for k in profile["conditions"]):
         return "conditions_absent", ref
+    if profile.get("additional_configuration_undisclosed"):
+        return "unknown", ref
     if all(conditions.get(k) is True for k in profile["conditions"]):
         return "conditions_present", ref
     return "unknown", ref
@@ -150,6 +183,7 @@ def review(request):
     status, fixed, detail = "unknown", None, "A referenced inventory for the exact package in the deployed build is required."
     applicability, config_ref = "unknown", None
     parsed = None
+    beta_tag = None
     version_evidence = {}
     if identity_matches and all(scope.values()) and inv_ref and inventory.get("deployment_verified") is True:
         applicability, config_ref = feature_status(profile, config, scope)
@@ -169,18 +203,28 @@ def review(request):
             )
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
+            raw = inventory.get("version")
+            if package == "livewire/livewire" and isinstance(raw, str):
+                tag = raw.removeprefix("v")
+                if tag in LIVEWIRE_AFFECTED_BETAS:
+                    beta_tag = tag
+                    status, fixed = "affected_version", "3.6.4"
+                    detail = "This published beta is in the affected range beginning at 3.0.0-beta.1."
         else:
             status, fixed, detail = classify(profile, parsed)
         if version_evidence:
             parsed = None
+    limitations = ["Results concern the named advisory and supplied build only.",
+                   "Configuration evidence describes features. Actual disclosure or access requires separate evidence."]
+    if profile.get("additional_configuration_undisclosed"):
+        limitations.append("Livewire also requires a configuration the publisher did not identify. A mounted component alone leaves applicability unknown.")
     return {
         "advisory": advisory, "package": profile["package"], "ecosystem": profile["ecosystem"],
-        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else None, **version_evidence,
+        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else beta_tag, **version_evidence,
         "patch_status": status, "patch_reason": detail, "first_fixed_in_range": fixed,
         "applicability": applicability, "evidence_refs": {"inventory": inv_ref, "configuration": config_ref},
-        "published": profile["published"], "reviewed": REVIEWED, "sources": profile["sources"],
-        "limitations": ["Results concern the named advisory and supplied build only.",
-                        "Configuration evidence describes features. Actual disclosure or access requires separate evidence."],
+        "published": profile["published"], "reviewed": profile.get("reviewed", REVIEWED), "sources": profile["sources"],
+        "limitations": limitations,
     }
 
 

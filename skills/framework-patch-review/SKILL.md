@@ -1,6 +1,6 @@
 ---
 name: framework-patch-review
-description: Review version and configuration evidence for named Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
+description: Review version and configuration evidence for named Livewire, Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
 ---
 
 # Review framework package patches
@@ -20,18 +20,19 @@ Use the [affected package](examples/gap.json), [fixed package](examples/pass.jso
 | Field | Evidence to supply |
 | --- | --- |
 | `asset`, `build`, `ref` | Redacted identifiers for the deployed application, exact build and inventory artifact. |
-| `ecosystem`, `package` | `npm` and `next`, `composer` and `symfony/http-foundation`, `composer` and `drupal/core`, or `pypi` and `Django`. The checker accepts PyPI name case variants. |
-| `version` | Use the release actually installed in the serving build. Use three numeric components for npm. Composer also accepts a leading `v`. For Django, `6.0` denotes `6.0.0`. Development, prerelease, modified and ambiguous version strings yield unknown. |
+| `ecosystem`, `package` | For Composer, use `composer` and the package name `livewire/livewire`, `symfony/http-foundation` or `drupal/core`. Other supported pairs are `npm` with `next` and `pypi` with `Django`. The checker accepts PyPI name case variants. |
+| `version` | Use the release actually installed in the serving build. Use three numeric components for npm. Composer also accepts a leading `v`. For Django, `6.0` denotes `6.0.0`. Development, modified and ambiguous strings yield unknown. The Livewire check also recognizes the published betas at its affected lower boundary. |
 | `origin`, `deployment_verified` | Set `origin` to `upstream` only for the unmodified upstream package. Set `deployment_verified` to true only when the referenced artifact ties that package to this build. Distribution or custom backports require their own patch records. |
 
 A linked deployment manifest plus the production image's package inventory can establish the version. A dependency lockfile needs a reference tying its resolved release to the deployed artifact. Keep customer names, credentials, hashes of passwords and production data out of examples and chat.
 
 ## Check the relevant feature separately
 
-An optional `applicability` object takes `asset`, `build`, `ref` and a `conditions` object. Use a configuration or code-review reference for the same deployment and scope. Use `true` or `false` only when that source supports an answer. Omit a condition or use `null` when its state is unknown. All named conditions must be present and true to establish the feature combination. One verified false rules out that combination within the supplied scope.
+An optional `applicability` object takes `asset`, `build`, `ref` and a `conditions` object. Use a configuration or code-review reference for the same deployment and scope. Use `true` or `false` only when that source supports an answer. Omit a condition or use `null` when its state is unknown. A positive applicability result requires evidence for every prerequisite. One verified false rules out that combination within the supplied scope.
 
 | Advisory and first fixed upstream releases | Condition names and evidence |
 | --- | --- |
+| Livewire CVE-2025-54068, 3.6.4. The affected interval begins at 3.0.0-beta.1. | `livewire_component_mounted`. Mounting is one prerequisite. Livewire describes an additional configuration requirement whose details are undisclosed. [Livewire advisory](https://github.com/livewire/livewire/security/advisories/GHSA-29cq-5w36-x7w3) |
 | Drupal core CVE-2026-132165, 10.6.22, 11.3.22 and 11.4.13 on the three maintained lines named in the bulletin. | Package-only review. Leave site applicability unknown. Partial mitigations never establish a package fix. [Drupal bulletin, 18 November 2026](https://www.drupal.org/sa-core-2026-017) |
 | Drupal core CVE-2026-132166, 10.6.22, 11.3.22 and 11.4.13. | Use matching upstream Composer and serving-core observations. The package result leaves site applicability unknown. [Drupal bulletin SA-CORE-2026-018](https://www.drupal.org/sa-core-2026-018) |
 | Next.js CVE-2026-119349, 16.4.5. Affected releases begin at 16.0.0. | `app_router` and `binary_arguments_to_use_cache`. The app uses the App Router and passes binary arguments to a cached function. [Next.js advisory, 3 November 2026](https://github.com/vercel/next.js/security/advisories/GHSA-rhh4-g77r-r9qj) |
@@ -39,6 +40,14 @@ An optional `applicability` object takes `asset`, `build`, `ref` and a `conditio
 | Symfony CVE-2026-118514, 5.4.56, 6.4.50, 7.4.23 and 8.1.11 on their respective release lines. | `get_rule_without_head`. Review method-scoped access rules, firewalls and custom matchers for a GET rule without HEAD. The upstream bulletin includes earlier stable releases below 5.4.56. [Symfony advisory, 4 November 2026](https://symfony.com/blog/cve-2026-118514-head-requests-bypass-the-methods-option-of-access-control-and-firewalls-incomplete-fix-for-cve-2026-45075) |
 | Django CVE-2026-113593, 5.2.19, 6.0.10 and 6.1.3. | `django_page_cache_in_use` and `vary_header_present`. The assessed response uses Django's page-cache middleware or decorator and lists a request header in Vary. [Django bulletin, 3 November 2026](https://www.djangoproject.com/weblog/2026/nov/03/security-releases/) · [Django CNA record](https://www.cve.org/CVERecord?id=CVE-2026-113593) |
 | Django CVE-2026-113733, 6.0.10 and 6.1.3. | `view_only_user_admin` and `affected_user_model_layout`. Review whether staff can view a user record without change permission. The model condition holds for a model other than AUTH_USER_MODEL or a configured user model inheriting its password field from a concrete parent. The supported 5.2 line falls outside this advisory's affected ranges. Older unevaluated branches remain unknown. [Django bulletin, 3 November 2026](https://www.djangoproject.com/weblog/2026/nov/03/security-releases/) · [Django CNA record](https://www.cve.org/CVERecord?id=CVE-2026-113733) |
+
+## Check a deployed Livewire component
+
+Run `python3 scripts/check.py < examples/CVE-2025-54068.json`. The example ties Composer's `livewire/livewire` v3.6.3 to a serving build with a mounted component. Expect `affected_version`, first fix `3.6.4`, and `unknown` applicability. The project's advisory range field omits 3.6.3. The CNA record and reviewed advisory include it, and the publisher released the fix in the single commit from v3.6.3 to v3.6.4. [CNA record](https://www.cve.org/CVERecord?id=CVE-2025-54068) · [Reviewed advisory](https://github.com/advisories/GHSA-29cq-5w36-x7w3) · [Publisher release](https://github.com/livewire/livewire/releases/tag/v3.6.4) · [Release comparison](https://github.com/livewire/livewire/compare/v3.6.3...v3.6.4)
+
+Set `livewire_component_mounted` to `false` only when a same-build review covers every application in scope and rules out all mounts. A check of one route, tenant or application leaves the condition unknown for the rest. A verified mount alone also leaves applicability unknown because the publisher did not identify the additional configuration.
+
+The offline release list was checked on 20 November 2026. Published stable releases on the 0.x, 1.x and 2.x lines fall outside the advisory. The checker evaluates published stable v3 releases and the eleven published 3.0.0 betas. The publisher’s advisory predates v4 and provides no patch determination for that line. Report a v4 release as `unknown` with no first fix. For an unlisted tag, a Composer constraint, or a modified or distributor build, report patch status as `unknown` and obtain a current release or backport record. [Packagist release index](https://repo.packagist.org/p2/livewire/livewire.json)
 
 ## Reproduce the Drupal release comparison
 
@@ -68,4 +77,4 @@ Quote the named advisory, package, asset, build and inventory reference. Preserv
 - `unknown` means the checker needs better inventory, provenance, a supported version format or information about that release line.
 - `conditions_present`, `conditions_absent` and `unknown` describe the recorded deployment features. Cite the configuration reference when available. An affected package with matching features merits review of the relevant data or access policy. Proof of disclosure or unauthorized access needs independent evidence.
 
-Report an `invalid_input` result as a request to correct the input. Retest against a new deployed inventory after an upgrade. These advisory records were reviewed on 19 November 2026.
+Report an `invalid_input` result as a request to correct the input. Retest against a new deployed inventory after an upgrade. Each result includes its advisory review date.
