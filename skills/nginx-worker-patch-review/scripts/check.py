@@ -95,10 +95,17 @@ def may_worker(record):
         else:
             reader = may_plus if record["product"] == "nginx-plus" else may_oss
             result = reader(version)
-            installed = record.get("installed_version")
-            if (result["patch_status"] != "unknown" and installed != version
-                    and reader(installed)["patch_status"] != "unknown"):
-                result["patch_reason"] += " The installed release differs from the worker. Report this generation separately."
+            if result["patch_status"] != "unknown":
+                installed = record.get("installed_version")
+                if isinstance(installed, str) and installed.strip() and installed != version:
+                    if reader(installed)["patch_status"] == "unknown":
+                        result["patch_reason"] += " Reconcile the unrecognized installed release with the worker inventory."
+                    else:
+                        result["patch_reason"] += " The installed release differs from the worker. Report this generation separately."
+                result["patch_reason"] += (
+                    " This verdict relies on the operator's provenance record for the release executable. "
+                    "The checker compares the supplied hashes and cannot detect a value copied into both fields."
+                )
     return {**result, "worker": worker, "release_ref": ref}
 
 

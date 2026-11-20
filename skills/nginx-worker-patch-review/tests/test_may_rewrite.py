@@ -85,6 +85,19 @@ class MayRewriteTests(unittest.TestCase):
         legacy["evidence"]["product"] = "nginx-plus"
         self.check(legacy, "unknown")
 
+    def test_provenance_disclosure_and_unrecognized_installed_release(self):
+        data = worker("nginx-plus", "R36 P4")
+        data["evidence"]["worker_sha256"] = "c" * 64
+        data["evidence"]["release_provenance"]["executable_sha256"] = "c" * 64
+        data["evidence"]["installed_version"] = "R35"
+        result = self.check(data, "vendor_fix_present", "R36 P4")
+        for term in ("operator's provenance", "copied into both fields", "unrecognized installed release"):
+            self.assertIn(term, result["patch_reason"])
+        data["evidence"]["release_provenance"]["verified"] = False
+        self.check(data, "unknown")
+        later = self.check(worker("nginx-plus", "PLS.37.0.0.1"), "outside_affected_range")
+        self.assertIn("operator's provenance", later["patch_reason"])
+
     def test_malformed_profiles_and_non_json_numbers(self):
         record = worker("nginx-plus", "R36 P4")
         record["evidence"]["release_provenance"]["unrecognized"] = True
