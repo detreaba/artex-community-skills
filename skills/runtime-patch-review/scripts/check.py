@@ -7,6 +7,19 @@ import sys
 PHP_OCT_21_FIXES = ((8, 2, 35), (8, 3, 36), (8, 4, 27), (8, 5, 12))
 PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13), (8, 6, 0))
 PHP_860_CHANGELOG = "https://www.php.net/ChangeLog-8.php#8.6.0"
+# Published PHP releases per branch below 8.5, as (first patch, last patch, unpublished patch numbers in between).
+# Source: php.net release index (https://www.php.net/releases/index.php?json=1&max=1000&version=N for N = 4, 5, 7, 8),
+# read 2026-11-20. It returns "Unknown version" for the gaps, for 8.1.35 and for every 6.x and 7.5 number.
+# A vendor exclusion applies only to these releases, or to a later patch on a still-supported branch.
+PHP_RELEASE_INDEX = {
+    (4, 0): (0, 6, ()), (4, 1): (0, 2, ()), (4, 2): (0, 3, ()), (4, 3): (0, 11, ()),
+    (4, 4): (0, 9, ()), (5, 0): (0, 5, ()), (5, 1): (0, 6, ()), (5, 2): (0, 17, (7,)),
+    (5, 3): (0, 29, ()), (5, 4): (0, 45, ()), (5, 5): (0, 38, ()), (5, 6): (0, 40, ()),
+    (7, 0): (0, 33, ()), (7, 1): (0, 33, ()), (7, 2): (0, 34, ()), (7, 3): (0, 33, ()),
+    (7, 4): (0, 33, (17, 31)), (8, 0): (0, 30, (4,)), (8, 1): (0, 34, ()), (8, 2): (0, 36, ()),
+    (8, 3): (0, 37, (5, 18, 34)), (8, 4): (1, 28, (9,)),
+}
+PHP_SUPPORTED_BRANCHES = frozenset({(8, 2), (8, 3), (8, 4), (8, 5), (8, 6)})
 
 ADVISORIES = {
     "CVE-2026-109618": {
@@ -79,6 +92,39 @@ ADVISORIES = {
         "release_sources": (PHP_860_CHANGELOG,),
         "limitation": "The trigger also needs a startup diagnostic written to that log, such as an invalid date.timezone value or a warning or deprecation caused by session configuration, and an early request diagnostic in a fresh worker. Workers inherit the stale reference from the parent, so correcting those settings and then restarting the PHP master process and all workers removes the demonstrated trigger.",
     },
+    "CVE-2026-129481": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 3, 0)),
+        "branch_parts": 2,
+        "outside": (((0, 0, 0), (8, 3, 0)),),
+        "outside_reason": 'The vendor states: "PHP 8.2 and earlier do not contain the field and are not affected."',
+        "conditions": ("worker_reused_across_requests",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-g3vh-838c-65v7",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "The demonstrated sequence needs a fatal error in a callback reached during session cleanup, such as a stream wrapper's stream_close(), and a later request to the same worker. The vendor says that for PHP-FPM, setting pm.max_requests=1 and restarting the workers prevents the demonstrated sequence. Enabling OPcache is not a reliable mitigation.",
+    },
+    "CVE-2026-129474": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 5, 0)),
+        "branch_parts": 2,
+        "outside": (((8, 2, 0), (8, 5, 0)),),
+        "outside_reason": 'The vendor states: "PHP 8.2 to 8.4 contain the underlying backtrace error but have no known remote trigger and are outside the affected range."',
+        "conditions": ("fatal_error_backtraces_enabled", "exception_args_included"),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-8mjj-2r7p-4hg2",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "The demonstrated attack also needs a reachable __call() or __callStatic() path and a fatal error while it is entered. PCNTL signal handlers or extensions that inspect interrupted calls can reach the underlying error on PHP 8.2 to 8.4, and the vendor asks for such extensions to be reviewed on every branch.",
+    },
+    "CVE-2026-129182": {
+        "runtime": "php",
+        "fixed": tuple(f for f in PHP_NOV_19_FIXES if f >= (8, 5, 0)),
+        "branch_parts": 2,
+        "outside": (((0, 0, 0), (8, 5, 0)),),
+        "outside_reason": 'The vendor states: "PHP 8.4 and earlier do not contain the global and are not affected."',
+        "conditions": ("fatal_error_backtraces_enabled",),
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-2fjv-p558-g82m",
+        "release_sources": (PHP_860_CHANGELOG,),
+        "limitation": "Exploitation also needs a fatal diagnostic during shutdown, such as restoring path-specific memory or output-compression settings, and an early diagnostic in a later request to the same worker.",
+    },
     "CVE-2026-123865": {
         "runtime": "node",
         "fixed": ((22, 23, 5), (24, 22, 3), (26, 13, 1)),
@@ -103,6 +149,17 @@ def _alias(value):
     return value if isinstance(value, str) and _ALIAS.fullmatch(value) else None
 
 
+def _published_php(version):
+    """True for a release in PHP's release index, or a later patch on a still-supported branch."""
+    entry = PHP_RELEASE_INDEX.get(version[:2])
+    if entry is None:
+        return False
+    first, last, gaps = entry
+    if version[2] > last:
+        return version[:2] in PHP_SUPPORTED_BRANCHES
+    return first <= version[2] and version[2] not in gaps
+
+
 def _patch_status(profile, inventory):
     if inventory.get("origin") != "upstream":
         return "unknown", "A distribution, custom build or unspecified origin requires a matching vendor package decision.", None
@@ -122,6 +179,12 @@ def _patch_status(profile, inventory):
             if version >= fixed:
                 return "vendor_fix_present", "The upstream release is at or above the documented fix on this branch.", boundary
             return "affected_version", "The upstream release is in the documented affected range on this branch.", boundary
+    # Only branches the vendor explicitly places outside the affected range; any other line stays unknown.
+    if any(start <= version < end for start, end in profile.get("outside", ())):
+        if profile["runtime"] == "php" and not _published_php(version):
+            return "unknown", ("PHP's release index lists no such release, so the vendor's exclusion cannot be applied. "
+                               "Reconcile the inventory with the serving binary."), None
+        return "outside_affected_range", profile["outside_reason"], None
     return "unknown", "The requested branch is outside the ranges reviewed for this advisory.", None
 
 

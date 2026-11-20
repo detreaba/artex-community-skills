@@ -23,12 +23,23 @@ PHP_FPM_SMUGGLING = "CVE-2026-129289"
 PHP_TZ_CACHE = "CVE-2026-129496"
 NOV_RCE = {PHP_SESSION_FILES: "session_files_handler_in_use", PHP_FPM_SMUGGLING: "backend_connection_reuse_enabled",
            PHP_TZ_CACHE: "php_error_log_to_file"}
+PHP_SESSION_SHUTDOWN = "CVE-2026-129481"
+PHP_MAGIC_BACKTRACE = "CVE-2026-129474"
+PHP_SHUTDOWN_BACKTRACE = "CVE-2026-129182"
+NOV_BRANCH = (PHP_SESSION_SHUTDOWN, PHP_MAGIC_BACKTRACE, PHP_SHUTDOWN_BACKTRACE)
+# Each reason quotes the advisory's "Affected versions" sentence verbatim.
+VENDOR_EXCLUSIONS = {
+    PHP_SESSION_SHUTDOWN: 'The vendor states: "PHP 8.2 and earlier do not contain the field and are not affected."',
+    PHP_MAGIC_BACKTRACE: 'The vendor states: "PHP 8.2 to 8.4 contain the underlying backtrace error but have no known '
+                         'remote trigger and are outside the affected range."',
+    PHP_SHUTDOWN_BACKTRACE: 'The vendor states: "PHP 8.4 and earlier do not contain the global and are not affected."',
+}
 
 
 def inventory(advisory, version, **changes):
     inv = {"asset": "portal-a", "build": "release-7", "ref": "serving-inventory-12",
            "origin": "upstream", "version": version, "serving_process_verified": True,
-           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM, PHP_STALE, *NOV_RCE) else "node"}
+           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM, PHP_STALE, *NOV_RCE, *NOV_BRANCH) else "node"}
     return {"advisory": advisory, "inventory": {**inv, **changes}}
 
 
@@ -293,6 +304,89 @@ class RuntimePatchTests(unittest.TestCase):
         self.assertEqual(checker._conditions(profile, config(), scope), ("unknown", "config-review-7"))
         with self.assertRaises(ValueError):
             checker._conditions(profile, config(session_files_handler_in_use=True), scope)
+
+    def test_branch_limited_advisories_report_only_vendor_stated_exclusions(self):
+        out, aff, fix, unk = "outside_affected_range", "affected_version", "vendor_fix_present", "unknown"
+        for advisory, version, status, fixed in (
+                # GHSA-g3vh-838c-65v7: "PHP 8.2 and earlier do not contain the field and are not affected."
+                (PHP_SESSION_SHUTDOWN, "7.4.33", out, None), (PHP_SESSION_SHUTDOWN, "8.1.34", out, None),
+                (PHP_SESSION_SHUTDOWN, "8.2.35", out, None), (PHP_SESSION_SHUTDOWN, "8.2.36", out, None),
+                (PHP_SESSION_SHUTDOWN, "8.3.0", aff, "8.3.37"), (PHP_SESSION_SHUTDOWN, "8.3.36", aff, "8.3.37"),
+                (PHP_SESSION_SHUTDOWN, "8.3.37", fix, "8.3.37"), (PHP_SESSION_SHUTDOWN, "8.4.27", aff, "8.4.28"),
+                (PHP_SESSION_SHUTDOWN, "8.5.12", aff, "8.5.13"), (PHP_SESSION_SHUTDOWN, "8.6.0", fix, "8.6.0"),
+                (PHP_SESSION_SHUTDOWN, "9.0.0", unk, None),
+                # GHSA-8mjj-2r7p-4hg2 names 8.2 to 8.4 only, so 8.1 and older stay unknown.
+                (PHP_MAGIC_BACKTRACE, "7.4.33", unk, None), (PHP_MAGIC_BACKTRACE, "8.1.34", unk, None),
+                (PHP_MAGIC_BACKTRACE, "8.2.0", out, None), (PHP_MAGIC_BACKTRACE, "8.3.36", out, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.28", out, None), (PHP_MAGIC_BACKTRACE, "8.5.0", aff, "8.5.13"),
+                (PHP_MAGIC_BACKTRACE, "8.5.12", aff, "8.5.13"), (PHP_MAGIC_BACKTRACE, "8.5.13", fix, "8.5.13"),
+                (PHP_MAGIC_BACKTRACE, "8.6.0", fix, "8.6.0"),
+                # GHSA-2fjv-p558-g82m: "PHP 8.4 and earlier do not contain the global and are not affected."
+                (PHP_SHUTDOWN_BACKTRACE, "8.1.34", out, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.27", out, None),
+                (PHP_SHUTDOWN_BACKTRACE, "8.5.12", aff, "8.5.13"), (PHP_SHUTDOWN_BACKTRACE, "8.5.13", fix, "8.5.13"),
+                (PHP_SHUTDOWN_BACKTRACE, "8.6.0", fix, "8.6.0"), (PHP_SHUTDOWN_BACKTRACE, "8.7.0", unk, None),
+                (PHP_SESSION_SHUTDOWN, "8.4.28", fix, "8.4.28"), (PHP_SESSION_SHUTDOWN, "8.5.13", fix, "8.5.13"),
+                (PHP_SHUTDOWN_BACKTRACE, "8.5.0", aff, "8.5.13"),
+                # Codex, #43: an exclusion needs a release in PHP's release index. 6.x, 7.5, 8.1.35 and the index's
+                # gaps were never published; later patches on a supported branch stay covered.
+                (PHP_SESSION_SHUTDOWN, "6.0.0", unk, None), (PHP_SESSION_SHUTDOWN, "7.5.0", unk, None),
+                (PHP_SESSION_SHUTDOWN, "8.1.35", unk, None), (PHP_SESSION_SHUTDOWN, "5.2.7", unk, None),
+                (PHP_SESSION_SHUTDOWN, "7.4.17", unk, None), (PHP_SESSION_SHUTDOWN, "8.0.4", unk, None),
+                (PHP_SESSION_SHUTDOWN, "5.2.17", out, None), (PHP_SESSION_SHUTDOWN, "8.2.37", out, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.0", unk, None), (PHP_MAGIC_BACKTRACE, "8.3.18", unk, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.9", unk, None), (PHP_MAGIC_BACKTRACE, "8.4.1", out, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.29", out, None),
+                (PHP_SHUTDOWN_BACKTRACE, "6.0.0", unk, None), (PHP_SHUTDOWN_BACKTRACE, "8.1.35", unk, None),
+                (PHP_SHUTDOWN_BACKTRACE, "8.3.34", unk, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.0", unk, None),
+                (PHP_SHUTDOWN_BACKTRACE, "8.3.35", out, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.29", out, None)):
+            with self.subTest(advisory=advisory, version=version):
+                row = self.php_cli(advisory, version)
+                self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
+                if status == out:
+                    self.assertEqual(row["patch_reason"], VENDOR_EXCLUSIONS[advisory])
+        reason = self.php_cli(PHP_MAGIC_BACKTRACE, "8.4.27")["patch_reason"]
+        self.assertIn("no known remote trigger", reason)
+        self.assertNotIn("not affected", reason)
+        self.assertIn("release index", self.php_cli(PHP_SESSION_SHUTDOWN, "8.1.35")["patch_reason"])
+
+    def test_exclusions_need_a_verified_stable_upstream_release(self):
+        # Use a version each profile actually excludes, so the gate itself is what the test exercises.
+        excluded = {PHP_SESSION_SHUTDOWN: "8.2.35", PHP_MAGIC_BACKTRACE: "8.4.27", PHP_SHUTDOWN_BACKTRACE: "8.4.27"}
+        for advisory, version in excluded.items():
+            self.assertEqual(self.php_cli(advisory, version)["patch_status"], "outside_affected_range")
+            for candidate, changes in ((version, {"origin": "distribution"}), (version, {"origin": "custom"}),
+                                       (version, {"serving_process_verified": False}), (version + "RC1", {}),
+                                       ("8.6.0RC7", {})):
+                with self.subTest(advisory=advisory, version=candidate, changes=changes):
+                    row = self.php_cli(advisory, candidate, **changes)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("unknown", None))
+            request = dict(inventory(advisory, version), applicability=config(node_handles_http2=True))
+            run = subprocess.run([sys.executable, "-ISB", str(CHECKER)], input=json.dumps(request), text=True,
+                                 capture_output=True, timeout=5)
+            self.assertEqual((run.returncode, json.loads(run.stdout)["error"]), (2, "invalid_input"))
+
+    def test_branch_limited_configuration_evidence(self):
+        # CVE-2026-129481: "The requests must reach the same worker"; pm.max_requests=1 prevents the demonstrated sequence.
+        self.assertEqual(self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12", config())["applicability"], "unknown")
+        for value, want in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+            row = self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12", config(worker_reused_across_requests=value))
+            self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", want))
+        self.assertIn("pm.max_requests=1", self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12")["limitations"][2])
+        with self.assertRaises(ValueError):
+            review(dict(inventory(PHP_SESSION_SHUTDOWN, "8.5.12"), applicability=config(session_files_handler_in_use=True)))
+        both = ("fatal_error_backtraces_enabled", "exception_args_included")
+        for flags, want in (({both[0]: True, both[1]: True}, "conditions_present"),
+                            ({both[0]: True, both[1]: False}, "conditions_absent"),
+                            ({both[0]: False, both[1]: None}, "conditions_absent"),
+                            ({both[0]: True, both[1]: None}, "unknown")):
+            with self.subTest(flags=flags):
+                self.assertEqual(self.php_cli(PHP_MAGIC_BACKTRACE, "8.5.12", config(**flags))["applicability"], want)
+        for value, want in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+            row = self.php_cli(PHP_SHUTDOWN_BACKTRACE, "8.5.12", config(fatal_error_backtraces_enabled=value))
+            self.assertEqual(row["applicability"], want)
+        # Configuration is reported beside an exclusion, as framework-patch-review does.
+        row = self.php_cli(PHP_MAGIC_BACKTRACE, "8.4.27", config(**{both[0]: True, both[1]: True}))
+        self.assertEqual((row["patch_status"], row["applicability"]), ("outside_affected_range", "conditions_present"))
 
     def test_isolated_cli_and_malformed_inputs(self):
         for input_bytes, expected in [
