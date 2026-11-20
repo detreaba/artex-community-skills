@@ -41,25 +41,38 @@ def _policy_set(policy, kind, category):
 
 
 def _category_verdict(record, category, forbidden, required):
-    """Verdict for one category. ``forbidden`` is checked across the union of the
-    category's direction name-lists (any direction offering a forbidden algorithm
-    is a gap). ``required`` is checked PER direction (each direction must offer a
-    required algorithm), so a required algorithm present in only one direction is
-    still a gap -- SSH negotiates the two directions independently. Fails closed:
-    a direction whose name-list was not captured reads unknown."""
+    """Verdict for one category. ``forbidden`` is a positive detection across the
+    captured direction name-lists -- a forbidden algorithm offered in ANY captured
+    direction is a gap, even if the opposite direction was not captured.
+    ``required`` is checked PER direction: a captured direction offering none of
+    the required set is a gap (SSH negotiates the two directions independently), so
+    a required algorithm present in only one direction is still a gap. Fails
+    closed: when nothing above decided the category and a direction's name-list was
+    not captured, it reads unknown rather than pass."""
     if not record.get("kexinit_read"):
         return "unknown"
     per_direction = []
+    incomplete = False
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
-            return "unknown"
+            incomplete = True
+            continue
         per_direction.append(set(str(v) for v in vals))
+    if not per_direction:
+        return "unknown"  # the category's name-list(s) were not captured at all
     union = set().union(*per_direction)
+    # forbidden is a positive detection: a match in any captured direction is a gap.
     if union & forbidden:
         return "gap"
+    # required is per direction: a captured direction offering none of the required
+    # set is a definite gap, even when the opposite direction was not captured.
     if required and any(not (direction & required) for direction in per_direction):
         return "gap"
+    # nothing forbidden and every captured direction met required, but a direction
+    # is missing -> cannot confirm a pass.
+    if incomplete:
+        return "unknown"
     return "pass"
 
 

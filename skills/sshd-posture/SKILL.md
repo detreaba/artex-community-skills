@@ -69,13 +69,17 @@ the policy names a `forbidden` or `required` set for it). `cipher` covers both
 `enc_c2s`/`enc_s2c` and `mac` both `mac_c2s`/`mac_s2c`, and SSH negotiates the two
 directions independently, so:
 
-- `forbidden`: an algorithm offered in **either direction** that matches → `gap`;
-- `required`: **each direction** must offer a required algorithm — a required
-  algorithm present in only one direction is still a `gap` (fail-closed, not the
-  union);
+- `forbidden`: a positive detection — an algorithm offered in **any captured
+  direction** that matches → `gap` (one captured direction is enough; it does not
+  need every direction);
+- `required`: **each direction** must offer a required algorithm — a captured
+  direction offering none of the required set is a `gap`, so a required algorithm
+  present in only one direction is still a `gap` (fail-closed, not the union);
 - otherwise `pass`;
 - a category the observation did not fully capture (no KEXINIT read, or a
-  direction's name-list missing) → `unknown`.
+  direction's name-list missing) → `unknown` — **unless** a captured direction
+  already shows a forbidden algorithm or is missing a required one, which still
+  decides `gap`.
 
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.

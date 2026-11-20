@@ -233,6 +233,65 @@ class VerdictRules(unittest.TestCase):
                                        encryption_s2c=["aes256-gcm@openssh.com"]))
         self.assertEqual(out["per_category"]["cipher"], "pass")
 
+    def test_required_mac_missing_in_one_direction_is_gap(self):
+        # F-SSH-13: required MAC only in mac_c2s; mac_s2c offers a non-required,
+        # non-forbidden MAC. The per-direction required rule applies to MAC too.
+        out = check.evaluate(self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                                       mac_s2c=["umac-128@openssh.com"]))
+        self.assertEqual(out["per_category"]["mac"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    # --- Sweep: {forbidden, required} x {missing, empty, non-list} direction.
+    # A category with one direction captured must still decide gap from that
+    # direction; only an otherwise-clean but incomplete read is unknown.
+
+    def test_forbidden_in_captured_direction_with_other_missing_is_gap(self):
+        # A forbidden cipher visible in the captured direction is a gap even when
+        # the opposite direction's list is absent from the record (guards the
+        # regression where a missing direction masked the detection as unknown).
+        rec = self._rec(encryption_c2s=["3des-cbc"])
+        rec.pop("encryption_s2c")
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_required_absent_in_captured_direction_with_other_missing_is_gap(self):
+        # The captured direction offers none of the required set -> definite gap,
+        # even with the opposite direction missing.
+        rec = self._rec(encryption_c2s=["aes128-ctr"])
+        rec.pop("encryption_s2c")
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_required_met_in_captured_direction_but_other_missing_is_unknown(self):
+        # Captured direction meets required and nothing is forbidden, but a
+        # direction is missing -> cannot confirm a pass -> unknown (fails closed).
+        rec = self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"])
+        rec.pop("encryption_s2c")
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
+    def test_non_list_direction_still_detects_forbidden_in_other(self):
+        # A non-list direction field is treated as not captured, but a forbidden
+        # algorithm in the captured direction still decides gap.
+        out = check.evaluate(self._rec(encryption_c2s=["arcfour"],
+                                       encryption_s2c="not-a-list"))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_empty_direction_list_missing_required_is_gap(self):
+        # An empty but present direction offers none of the required set -> gap.
+        out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],
+                                       encryption_s2c=[]))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_both_directions_missing_is_unknown(self):
+        # Neither direction captured -> the category reads unknown.
+        rec = self._rec()
+        rec.pop("encryption_c2s")
+        rec.pop("encryption_s2c")
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")
