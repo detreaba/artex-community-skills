@@ -14,6 +14,11 @@ clean exit, it returns ``unknown``.
 import json
 import sys
 
+# Map a negotiated version string (ssl.SSLSocket.version()) back to a policy token.
+_NEGOTIATED_TO_VERSION = {
+    "TLSv1": "1.0", "TLSv1.1": "1.1", "TLSv1.2": "1.2", "TLSv1.3": "1.3",
+}
+
 
 def _attempts_by_version(record):
     out = {}
@@ -120,6 +125,17 @@ def evaluate(record):
         if len(roles) > 1:
             contradictory.append(v)
         per_version[v] = {"policy": "+".join(roles), "verdict": _combine(verdicts)}
+
+    # The full-range control handshake offers 1.0-1.3; if the server negotiated a
+    # must-refuse version there, it accepts that version, which is a gap even if
+    # the single-version attempt was refused or inconclusive.
+    control = record.get("control")
+    if isinstance(control, dict) and control.get("class") == "negotiated":
+        cv = _NEGOTIATED_TO_VERSION.get(control.get("negotiated"))
+        if cv in must_refuse:
+            entry = per_version.get(cv) or {"policy": "must_refuse", "verdict": "gap"}
+            entry["verdict"] = "gap"
+            per_version[cv] = entry
 
     verdicts = [d["verdict"] for d in per_version.values()]
     if not verdicts:

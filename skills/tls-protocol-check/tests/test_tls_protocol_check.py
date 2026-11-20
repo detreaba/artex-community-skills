@@ -154,6 +154,27 @@ class OverlapAndFailClosed(unittest.TestCase):
         self.assertEqual(out["per_version"]["1.1"]["verdict"], "gap")
         self.assertEqual(out["overall"], "gap")
 
+    def test_control_negotiated_must_refuse_is_gap(self):
+        # F-TLS-1: the full-range control negotiated a must-refuse version, so the
+        # server accepts it even though the single-version attempt was refused.
+        rec = _record(["1.0", "1.1"], ["1.2", "1.3"],
+                      [_att("1.0", "version_refused", reason="TLSV1_ALERT_PROTOCOL_VERSION"),
+                       _att("1.1", "version_refused", reason="TLSV1_ALERT_PROTOCOL_VERSION"),
+                       _att("1.2", "negotiated", negotiated="TLSv1.2"),
+                       _att("1.3", "negotiated", negotiated="TLSv1.3")])
+        rec["control"] = {"class": "negotiated", "negotiated": "TLSv1", "reason": None}
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_version"]["1.0"]["verdict"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_control_negotiated_must_accept_unchanged(self):
+        # The normal pass case: control negotiates a must-accept version.
+        out = check.evaluate(_record(["1.0"], ["1.2"],
+                             [_att("1.0", "version_refused", reason="TLSV1_ALERT_PROTOCOL_VERSION"),
+                              _att("1.2", "negotiated", negotiated="TLSv1.2")],
+                             control_class="negotiated"))
+        self.assertEqual(out["overall"], "pass")
+
     def test_non_list_policy_fields_fail_closed(self):
         out = check.evaluate({"policy": {"must_refuse": True, "must_accept": "1.2"},
                               "attempts": [_att("1.0", "negotiated", negotiated="TLSv1")],
