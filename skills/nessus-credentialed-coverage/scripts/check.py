@@ -10,6 +10,8 @@ from xml.parsers import expat
 XML_LIMIT = 8 * 1024 * 1024
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:@-]{0,95}")
 LABEL = re.compile(r"[ \t]*Credentialed[ \t]+checks[ \t]*:[ \t]*(.*)", re.I | re.ASCII)
+SCAN_TYPE = re.compile(r"[ \t]*Scan[ \t]+type[ \t]*:[ \t]*(.*)", re.I | re.ASCII)
+AGENT = re.compile(r"\bagent\b", re.I | re.ASCII)
 ACCOUNT = r"""(?:'[^'\r\n]{1,128}'|"[^"\r\n]{1,128}"|[\w.@\\/-]{1,128})"""
 DIRECT_YES = re.compile(r"yes(?:,?[ \t]+(?:as[ \t]+" + ACCOUNT +
                         r",?[ \t]+)?via[ \t]+(?:ssh|smb))?", re.I | re.ASCII)
@@ -84,20 +86,32 @@ def classify(root, request):
     if outputs[0].text.rstrip().endswith("***TRUNCATED***"):
         return "unknown", "The export marks the scan-information output as truncated."
     fields = []
+    scan_types = []
     for line in outputs[0].text.split("\n"):
         match = LABEL.fullmatch(line)
         if match:
             fields.append(match.group(1).strip(" \t"))
+        scan_type = SCAN_TYPE.fullmatch(line)
+        if scan_type:
+            scan_types.append(scan_type.group(1).strip(" \t"))
+    if len(scan_types) > 1:
+        return "unknown", "Plugin 19506 contains multiple scan types for the selected host."
+    if scan_types and AGENT.search(scan_types[0]):
+        return "unknown", "Plugin 19506 names an agent in the scan type. Direct OS scan coverage is unresolved."
     if len(fields) == 1:
         if fields[0].lower() == "no":
             return "reported_no", "Nessus recorded a negative credentialed-check flag for this host."
         if DIRECT_YES.fullmatch(fields[0]):
             plugin_ids = {item.get("pluginID") for item in hosts[0].findall("ReportItem")}
-            blockers = sorted(plugin_ids.intersection({"21745", "110695"}))
+            blockers = sorted(plugin_ids.intersection({"21745", "110695", "117886"}))
             if blockers:
                 return "unknown", ("Plugin 19506 reports credentialed checks=yes. OS patch assessment was "
                                    "unavailable according to " + ", ".join(blockers) + ".")
-            return "reported_yes", "Nessus recorded an affirmative credentialed-check flag for this OS host."
+            reason = "Nessus recorded an affirmative credentialed-check flag for this OS host."
+            partial = sorted(plugin_ids.intersection({"24786", "110385", "117885"}))
+            if partial:
+                reason += " Individual checks may be incomplete according to " + ", ".join(partial) + "."
+            return "reported_yes", reason
     return "unknown", "A single recognized OS credentialed-check value is required."
 
 

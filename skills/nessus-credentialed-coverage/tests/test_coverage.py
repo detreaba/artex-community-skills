@@ -66,7 +66,7 @@ class CoverageTests(unittest.TestCase):
         login = item("yes", "141118")
         self.assertEqual(self.check(xml(report(host(login))))["status"], "unknown")
         self.assertEqual(self.check(xml(report(host(item("no") + login))))["status"], "reported_no")
-        for plugin in ("21745", "110695"):
+        for plugin in ("21745", "110695", "117886"):
             failure = f'<ReportItem pluginID="{plugin}"/>'
             with self.subTest(plugin=plugin):
                 row = self.check(xml(report(host(item("yes") + failure))))
@@ -76,12 +76,38 @@ class CoverageTests(unittest.TestCase):
                 self.assertEqual(self.check(xml(report(host(item("yes")) + host(failure, "other"))))["status"],
                                  "reported_yes")
 
+    def test_partial_privileges_qualify_only_the_selected_hosts_affirmative(self):
+        markers = "".join(f'<ReportItem pluginID="{p}"/>' for p in ("24786", "110385", "117885"))
+        row = self.check(xml(report(host(item("yes") + markers))))
+        self.assertEqual(row["status"], "reported_yes")
+        for word in ("incomplete", "24786", "110385", "117885"):
+            self.assertIn(word, row["reason"])
+        sibling = self.check(xml(report(host(item("yes")) + host(markers, "other"))))
+        self.assertNotIn("incomplete", sibling["reason"])
+        for other, expected in (("117886", "unknown"), ("117887", "reported_yes")):
+            present = markers + f'<ReportItem pluginID="{other}"/>'
+            self.assertEqual(self.check(xml(report(host(item("yes") + present))))["status"], expected)
+
+    def test_agent_and_duplicate_scan_types_leave_direct_scope_unresolved(self):
+        for flag in ("yes", "no", "yes, via ssh"):
+            row = self.check(xml(report(host(item(flag + "\nScan type : Windows Agent")))))
+            self.assertEqual(row["status"], "unknown")
+            self.assertIn("agent", row["reason"])
+        for types in ("sCaN\ttype : WINDOWS  AGENT", "Scan type: Network\nScan type: Windows Agent",
+                      "Scan type: Windows Agent\nScan type: Network", "Scan type: Network\nScan type: Other"):
+            self.assertEqual(self.check(xml(report(host(item("yes\n" + types)))))["status"], "unknown")
+        agent = host(item("yes\nScan type : Windows Agent"), "other")
+        self.assertEqual(self.check(xml(report(host(item("yes\nNote : Windows Agent")) + agent)))["status"], "reported_yes")
+
     def test_host_report_run_and_native_nesting(self):
         yes, no = item("yes"), item("no")
         self.assertEqual(self.check(xml(report(host(yes, "other") + host(no)), report(host(yes), "Older")))["status"],
                          "reported_no")
+        prior = host('<ReportItem pluginID="21745"/>', start="Earlier start")
+        self.assertEqual(self.check(xml(report(host(yes)), report(prior, "Older")))["status"], "reported_yes")
         for document in (
-            xml(report(host(yes, "other"))), xml(report(host(yes, start="Mon Nov 16 13:45:00 2026"))),
+            xml(report(host(yes) + prior)), xml(report(host(yes, "other"))),
+            xml(report(host(yes, start="Mon Nov 16 13:45:00 2026"))),
             xml(report(host(yes), "Other")), xml(report(host(yes) + host(no))),
             xml(report(host(yes)), report(host(no))), xml(report(host(yes + no))),
             xml("<Policy>" + report(host(yes)) + "</Policy>"),
