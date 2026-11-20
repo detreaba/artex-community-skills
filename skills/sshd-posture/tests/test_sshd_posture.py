@@ -212,12 +212,26 @@ class VerdictRules(unittest.TestCase):
         self.assertEqual(out["overall"], "gap")
 
     def test_forbidden_mac_in_s2c_direction_only_is_gap(self):
-        # F-SSH-12 preview: forbidden MAC only in mac_s2c -- the mac category
-        # unions both directions.
+        # forbidden MAC only in mac_s2c -- forbidden is the union of directions.
         out = check.evaluate(self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
                                        mac_s2c=["hmac-md5"]))
         self.assertEqual(out["per_category"]["mac"], "gap")
         self.assertEqual(out["overall"], "gap")
+
+    def test_required_cipher_missing_in_one_direction_is_gap(self):
+        # F-SSH-12: required cipher offered only in enc_c2s; enc_s2c offers a
+        # non-required, non-forbidden cipher. required is PER DIRECTION, so the
+        # category is a gap even though the union contains a required name.
+        out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],
+                                       encryption_s2c=["aes128-ctr"]))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_required_satisfied_per_direction_passes(self):
+        # Sanity: each direction offers a required algorithm (different ones) -> pass.
+        out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],
+                                       encryption_s2c=["aes256-gcm@openssh.com"]))
+        self.assertEqual(out["per_category"]["cipher"], "pass")
 
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))

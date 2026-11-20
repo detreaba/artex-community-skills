@@ -23,21 +23,6 @@ _FIELDS = {
 }
 
 
-def _offered(record, category):
-    """The set of algorithms offered for a category, or None if the observation
-    did not capture it (so the category reads unknown)."""
-    if not record.get("kexinit_read"):
-        return None
-    out = set()
-    seen = False
-    for field in _FIELDS[category]:
-        vals = record.get(field)
-        if isinstance(vals, list):
-            seen = True
-            out.update(str(v) for v in vals)
-    return out if seen else None
-
-
 def _policy_set(policy, kind, category):
     """Return (algorithms, malformed): the policy set for a category, and whether
     the policy named this category but in an unusable shape -- so the category
@@ -55,12 +40,25 @@ def _policy_set(policy, kind, category):
     return set(str(v) for v in vals), False
 
 
-def _category_verdict(offered, forbidden, required):
-    if offered is None:
+def _category_verdict(record, category, forbidden, required):
+    """Verdict for one category. ``forbidden`` is checked across the union of the
+    category's direction name-lists (any direction offering a forbidden algorithm
+    is a gap). ``required`` is checked PER direction (each direction must offer a
+    required algorithm), so a required algorithm present in only one direction is
+    still a gap -- SSH negotiates the two directions independently. Fails closed:
+    a direction whose name-list was not captured reads unknown."""
+    if not record.get("kexinit_read"):
         return "unknown"
-    if offered & forbidden:
+    per_direction = []
+    for field in _FIELDS[category]:
+        vals = record.get(field)
+        if not isinstance(vals, list):
+            return "unknown"
+        per_direction.append(set(str(v) for v in vals))
+    union = set().union(*per_direction)
+    if union & forbidden:
         return "gap"
-    if required and not (offered & required):
+    if required and any(not (direction & required) for direction in per_direction):
         return "gap"
     return "pass"
 
@@ -88,7 +86,7 @@ def evaluate(record):
             continue
         if not forbidden and not required:
             continue  # the operator expressed no policy for this category
-        per_category[cat] = _category_verdict(_offered(record, cat), forbidden, required)
+        per_category[cat] = _category_verdict(record, cat, forbidden, required)
 
     verdicts = list(per_category.values())
     if not verdicts:

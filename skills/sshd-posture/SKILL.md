@@ -65,12 +65,17 @@ python3 scripts/check.py < examples/unknown.json
 ```
 
 Per category (`kex`, `hostkey`, `cipher`, `mac` — a category is judged only when
-the policy names a `forbidden` or `required` set for it):
+the policy names a `forbidden` or `required` set for it). `cipher` covers both
+`enc_c2s`/`enc_s2c` and `mac` both `mac_c2s`/`mac_s2c`, and SSH negotiates the two
+directions independently, so:
 
-- any **offered** algorithm in `forbidden` → `gap`;
-- a non-empty `required` set with no offered algorithm in it → `gap`;
+- `forbidden`: an algorithm offered in **either direction** that matches → `gap`;
+- `required`: **each direction** must offer a required algorithm — a required
+  algorithm present in only one direction is still a `gap` (fail-closed, not the
+  union);
 - otherwise `pass`;
-- a category the observation did not capture (no KEXINIT read) → `unknown`.
+- a category the observation did not fully capture (no KEXINIT read, or a
+  direction's name-list missing) → `unknown`.
 
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.
