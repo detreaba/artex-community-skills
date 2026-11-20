@@ -1,5 +1,6 @@
 """Compare one recorded framework package with a named upstream security bulletin."""
 import json
+from pathlib import Path
 import re
 import sys
 
@@ -13,6 +14,8 @@ DJANGO_CACHE_WINDOWS = (
 )
 DJANGO_BULLETIN = "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/"
 NEXT_ADVISORIES = "https://github.com/vercel/next.js/security/advisories/"
+CRAFT_ADVISORIES = "https://github.com/craftcms/cms/security/advisories/"
+CRAFT_PACKAGE = {"ecosystem": "composer", "package": "craftcms/cms", "reviewed": "2026-11-20"}
 # Stable tags in Packagist's livewire/livewire index on 2026-11-20.
 # Each row gives the last published patch for minor 0, minor 1, and so on.
 LIVEWIRE_LAST_PATCH = {
@@ -44,6 +47,27 @@ DRUPAL_NOV_18 = {
     "conditions": (),
 }
 ADVISORIES = {
+    "CVE-2024-56145": {
+        **CRAFT_PACKAGE, "published": "2024-12-18",
+        "windows": (((3, 0, 0), (3, 9, 14), (4, 0, 0)), ((4, 0, 0), (4, 13, 2), (5, 0, 0)),
+                    ((5, 0, 0), (5, 5, 2), (6, 0, 0))),
+        "stable_3_floor": True, "conditions": ("php_register_argc_argv_enabled",),
+        "sources": [CRAFT_ADVISORIES + "GHSA-2p6p-9rc9-62j9", "https://github.com/craftcms/cms/releases/tag/3.9.14"],
+    },
+    "CVE-2025-23209": {
+        **CRAFT_PACKAGE, "published": "2025-01-18",
+        "windows": (((4, 0, 0), (4, 13, 8), (5, 0, 0)), ((5, 0, 0), (5, 5, 8), (6, 0, 0))),
+        "unresolved_range": ((5, 5, 5), (5, 5, 8)),
+        "conditions": ("active_craft_key_compromise_confirmed",), "positive_evidence_only": True,
+        "sources": [CRAFT_ADVISORIES + "GHSA-x684-96hh-833x", "https://github.com/craftcms/cms/releases/tag/5.5.8"],
+    },
+    "CVE-2025-32432": {
+        **CRAFT_PACKAGE, "published": "2025-04-24",
+        "windows": (((3, 0, 0), (3, 9, 15), (4, 0, 0)), ((4, 0, 0), (4, 14, 15), (5, 0, 0)),
+                    ((5, 0, 0), (5, 6, 17), (6, 0, 0))),
+        "conditions": (),
+        "sources": [CRAFT_ADVISORIES + "GHSA-f3gw-9ww9-jmc3", "https://craftcms.com/knowledge-base/craft-cms-cve-2025-32432"],
+    },
     "CVE-2025-54068": {
         "ecosystem": "composer", "package": "livewire/livewire", "published": "2025-07-17",
         "reviewed": "2026-11-20",
@@ -144,6 +168,26 @@ def classify(profile, version):
     return "unknown", None, "This release line is outside the branches reviewed by this checker."
 
 
+def craft_patch(profile, raw):
+    tag = raw.removeprefix("v") if isinstance(raw, str) else ""
+    try:
+        published = Path(__file__).with_name("craft-releases.txt").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError):
+        return None, ("unknown", None, "The bundled Craft release list is unavailable.")
+    if tag not in published:
+        return None, ("unknown", None, "Supply an exact deployed Craft tag covered by the reviewed release list.")
+
+    # The only prereleases in the list are initial 3.x, 4.x and 5.x release candidates.
+    base, _, candidate = tag.partition("-")
+    version = tuple(map(int, base.split(".")))
+    if candidate and version[0] == 3 and profile.get("stable_3_floor"):
+        return tag, ("unknown", None, "The publisher starts the affected range at stable 3.0.0 and gives no determination for earlier Craft 3 candidates.")
+    gap = profile.get("unresolved_range")
+    if gap and gap[0] <= version < gap[1]:
+        return tag, ("unknown", None, "The publisher ends the affected range before 5.5.5 and identifies 5.5.8 as fixed. Verify this intervening release separately.")
+    return tag, classify(profile, version)
+
+
 def feature_status(profile, config, scope):
     conditions = check_fields(config.get("conditions", {}), profile["conditions"])
     if not profile["conditions"]:
@@ -155,6 +199,8 @@ def feature_status(profile, config, scope):
     if not ref or any(config.get(k) != v for k, v in scope.items()):
         return "unknown", None
     if any(conditions.get(k) is False for k in profile["conditions"]):
+        if profile.get("positive_evidence_only"):
+            return "unknown", ref
         return "conditions_absent", ref
     if profile.get("additional_configuration_undisclosed"):
         return "unknown", ref
@@ -183,7 +229,7 @@ def review(request):
     status, fixed, detail = "unknown", None, "A referenced inventory for the exact package in the deployed build is required."
     applicability, config_ref = "unknown", None
     parsed = None
-    beta_tag = None
+    published_tag = None
     version_evidence = {}
     if identity_matches and all(scope.values()) and inv_ref and inventory.get("deployment_verified") is True:
         applicability, config_ref = feature_status(profile, config, scope)
@@ -201,13 +247,16 @@ def review(request):
             detail = " ".join(flags + ["Prioritize reconciling the deployment records."]) if flags else (
                 "The Composer and serving core observations do not establish a matching release. Reconcile the deployment records."
             )
+        elif package == "craftcms/cms":
+            published_tag, (status, fixed, detail) = craft_patch(profile, inventory.get("version"))
+            parsed = None
         elif parsed is None:
             detail = "An exact stable release from the deployed package is required."
             raw = inventory.get("version")
             if package == "livewire/livewire" and isinstance(raw, str):
                 tag = raw.removeprefix("v")
                 if tag in LIVEWIRE_AFFECTED_BETAS:
-                    beta_tag = tag
+                    published_tag = tag
                     status, fixed = "affected_version", "3.6.4"
                     detail = "This published beta is in the affected range beginning at 3.0.0-beta.1."
         else:
@@ -218,9 +267,11 @@ def review(request):
                    "Configuration evidence describes features. Actual disclosure or access requires separate evidence."]
     if profile.get("additional_configuration_undisclosed"):
         limitations.append("Livewire also requires a configuration the publisher did not identify. A mounted component alone leaves applicability unknown.")
+    if profile.get("positive_evidence_only"):
+        limitations.append("Only a confirmed compromise of the active key establishes this condition. A missing incident record or key rotation alone leaves it unknown.")
     return {
         "advisory": advisory, "package": profile["package"], "ecosystem": profile["ecosystem"],
-        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else beta_tag, **version_evidence,
+        "scope": scope, "version": ".".join(map(str, parsed)) if parsed else published_tag, **version_evidence,
         "patch_status": status, "patch_reason": detail, "first_fixed_in_range": fixed,
         "applicability": applicability, "evidence_refs": {"inventory": inv_ref, "configuration": config_ref},
         "published": profile["published"], "reviewed": profile.get("reviewed", REVIEWED), "sources": profile["sources"],

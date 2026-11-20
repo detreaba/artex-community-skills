@@ -32,6 +32,19 @@ class PackageTests(unittest.TestCase):
                 target.write_text(content)
         self.skill = self.root / "skills" / "first-skill"
 
+    def test_craft_release_list_is_required_only_for_the_framework_reader(self):
+        skill = self.skill.rename(self.root / "skills" / "framework-patch-review")
+        (skill / "SKILL.md").write_text("---\nname: framework-patch-review\n---\n")
+        with self.assertRaises(ValueError):
+            build(self.root)
+        for directory in (skill, self.root / "skills" / "second-skill"):
+            (directory / "scripts" / "craft-releases.txt").write_text("3.9.14\n")
+        build(self.root)
+        for archive in (self.root / "dist").glob("*.zip"):
+            with ZipFile(archive) as bundle:
+                included = archive.stem + "/scripts/craft-releases.txt" in bundle.namelist()
+                self.assertEqual(included, archive.stem == skill.name)
+
     def test_reproducible_complete_packages_and_manifest(self):
         build(self.root)
         output = self.root / "dist"

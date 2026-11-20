@@ -1,6 +1,6 @@
 ---
 name: framework-patch-review
-description: Review version and configuration evidence for named Livewire, Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
+description: Review version and configuration evidence for named Craft CMS, Livewire, Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
 ---
 
 # Review framework package patches
@@ -20,8 +20,8 @@ Use the [affected package](examples/gap.json), [fixed package](examples/pass.jso
 | Field | Evidence to supply |
 | --- | --- |
 | `asset`, `build`, `ref` | Redacted identifiers for the deployed application, exact build and inventory artifact. |
-| `ecosystem`, `package` | For Composer, use `composer` and the package name `livewire/livewire`, `symfony/http-foundation` or `drupal/core`. Other supported pairs are `npm` with `next` and `pypi` with `Django`. The checker accepts PyPI name case variants. |
-| `version` | Use the release actually installed in the serving build. Use three numeric components for npm. Composer also accepts a leading `v`. For Django, `6.0` denotes `6.0.0`. Development, modified and ambiguous strings yield unknown. The Livewire check also recognizes the published betas at its affected lower boundary. |
+| `ecosystem`, `package` | For Composer, use `composer` and the package name `craftcms/cms`, `livewire/livewire`, `symfony/http-foundation` or `drupal/core`. Other supported pairs are `npm` with `next` and `pypi` with `Django`. The checker accepts PyPI name case variants. |
+| `version` | Use the release actually installed in the serving build. Use three numeric components for npm. Composer also accepts a leading `v`. For Django, `6.0` denotes `6.0.0`. The Craft check recognizes published four-part releases and the initial release candidates on its reviewed lines. The Livewire check recognizes the published betas at its affected lower boundary. |
 | `origin`, `deployment_verified` | Set `origin` to `upstream` only for the unmodified upstream package. Set `deployment_verified` to true only when the referenced artifact ties that package to this build. Distribution or custom backports require their own patch records. |
 
 A linked deployment manifest plus the production image's package inventory can establish the version. A dependency lockfile needs a reference tying its resolved release to the deployed artifact. Keep customer names, credentials, hashes of passwords and production data out of examples and chat.
@@ -32,6 +32,9 @@ An optional `applicability` object takes `asset`, `build`, `ref` and a `conditio
 
 | Advisory and first fixed upstream releases | Condition names and evidence |
 | --- | --- |
+| Craft CMS CVE-2024-56145. First fixes are 3.9.14, 4.13.2 and 5.5.2. | `php_register_argc_argv_enabled`. Use the effective PHP setting on the web-serving build. A CLI export alone leaves it unknown. Set false only when the effective setting is disabled across every serving pool and applicable per-directory override for the sites in scope. [Craft advisory](https://github.com/craftcms/cms/security/advisories/GHSA-2p6p-9rc9-62j9) |
+| Craft CMS CVE-2025-23209. First documented fixes are 4.13.8 and 5.5.8. | `active_craft_key_compromise_confirmed`. A same-build incident record can confirm that the active key was compromised. A false flag means the compromise was unconfirmed and leaves applicability unknown. Supply only the redacted incident reference. [Craft advisory](https://github.com/craftcms/cms/security/advisories/GHSA-x684-96hh-833x) |
+| Craft CMS CVE-2025-32432. First fixes are 3.9.15, 4.14.15 and 5.6.17. | Package-only review. Record any separately installed mitigation extension in the report. It leaves the installed core version and the package verdict unchanged. [Craft advisory](https://github.com/craftcms/cms/security/advisories/GHSA-f3gw-9ww9-jmc3) · [Vendor mitigation extension](https://github.com/craftcms/security-patches) |
 | Livewire CVE-2025-54068, 3.6.4. The affected interval begins at 3.0.0-beta.1. | `livewire_component_mounted`. Mounting is one prerequisite. Livewire describes an additional configuration requirement whose details are undisclosed. [Livewire advisory](https://github.com/livewire/livewire/security/advisories/GHSA-29cq-5w36-x7w3) |
 | Drupal core CVE-2026-132165, 10.6.22, 11.3.22 and 11.4.13 on the three maintained lines named in the bulletin. | Package-only review. Leave site applicability unknown. Partial mitigations never establish a package fix. [Drupal bulletin, 18 November 2026](https://www.drupal.org/sa-core-2026-017) |
 | Drupal core CVE-2026-132166, 10.6.22, 11.3.22 and 11.4.13. | Use matching upstream Composer and serving-core observations. The package result leaves site applicability unknown. [Drupal bulletin SA-CORE-2026-018](https://www.drupal.org/sa-core-2026-018) |
@@ -40,6 +43,14 @@ An optional `applicability` object takes `asset`, `build`, `ref` and a `conditio
 | Symfony CVE-2026-118514, 5.4.56, 6.4.50, 7.4.23 and 8.1.11 on their respective release lines. | `get_rule_without_head`. Review method-scoped access rules, firewalls and custom matchers for a GET rule without HEAD. The upstream bulletin includes earlier stable releases below 5.4.56. [Symfony advisory, 4 November 2026](https://symfony.com/blog/cve-2026-118514-head-requests-bypass-the-methods-option-of-access-control-and-firewalls-incomplete-fix-for-cve-2026-45075) |
 | Django CVE-2026-113593, 5.2.19, 6.0.10 and 6.1.3. | `django_page_cache_in_use` and `vary_header_present`. The assessed response uses Django's page-cache middleware or decorator and lists a request header in Vary. [Django bulletin, 3 November 2026](https://www.djangoproject.com/weblog/2026/nov/03/security-releases/) · [Django CNA record](https://www.cve.org/CVERecord?id=CVE-2026-113593) |
 | Django CVE-2026-113733, 6.0.10 and 6.1.3. | `view_only_user_admin` and `affected_user_model_layout`. Review whether staff can view a user record without change permission. The model condition holds for a model other than AUTH_USER_MODEL or a configured user model inheriting its password field from a concrete parent. The supported 5.2 line falls outside this advisory's affected ranges. Older unevaluated branches remain unknown. [Django bulletin, 3 November 2026](https://www.djangoproject.com/weblog/2026/nov/03/security-releases/) · [Django CNA record](https://www.cve.org/CVERecord?id=CVE-2026-113733) |
+
+## Check a deployed Craft CMS release
+
+Use the installed `craftcms/cms` entry from the serving build. A project template such as `craftcms/craft`, an update constraint or a plugin's version leaves the core release unresolved. The bundled list covers stable Craft 3, 4 and 5 tags, including four-part releases, and the published 3.0.0, 4.0.0 and 5.0.0 release candidates. An unlisted version or other preview needs a separate publisher check. [Packagist release index](https://repo.packagist.org/p2/craftcms/cms.json)
+
+Run `python3 scripts/check.py < examples/CVE-2025-23209.json`. The fixture uses 5.5.6.1 with a confirmed compromise of the active key. Expect `unknown` for patch status and `conditions_present` for applicability. The bulletin stops the affected interval before 5.5.5 and names 5.5.8 as fixed. The published intervening tags are 5.5.5, 5.5.6, 5.5.6.1 and 5.5.7. The fix appears between 5.5.7 and 5.5.8. The advisory names Craft 4 and 5. A published Craft 3 tag also gives `unknown` with no first fix. Quote the applicable evidence gap in the report. A routine rotation or an incident involving only a previous key leaves the active key's status unknown. [Project advisory](https://github.com/craftcms/cms/security/advisories/GHSA-x684-96hh-833x) · [Publisher release comparison](https://github.com/craftcms/cms/compare/5.5.7...5.5.8)
+
+The two other fixtures show why the advisory ID matters. Craft 3.9.14 contains the fix for CVE-2024-56145 and is affected by CVE-2025-32432. For the former advisory, the Craft 3 affected range begins at stable 3.0.0 and earlier release candidates give `unknown`. The latter includes 3.0.0-RC1. [PHP configuration fixture](examples/CVE-2024-56145.json) · [Core package fixture](examples/CVE-2025-32432.json)
 
 ## Check a deployed Livewire component
 

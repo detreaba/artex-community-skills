@@ -16,7 +16,13 @@ DJANGO_ADMIN = "CVE-2026-113733"
 DRUPAL = "CVE-2026-132165"
 DRUPAL_018 = "CVE-2026-132166"
 LIVEWIRE = "CVE-2025-54068"
+CRAFT_PHP = "CVE-2024-56145"
+CRAFT_KEY = "CVE-2025-23209"
+CRAFT_CORE = "CVE-2025-32432"
 PACKAGES = {
+    CRAFT_PHP: ("composer", "craftcms/cms"),
+    CRAFT_KEY: ("composer", "craftcms/cms"),
+    CRAFT_CORE: ("composer", "craftcms/cms"),
     LIVEWIRE: ("composer", "livewire/livewire"),
     CACHE_BINARY: ("npm", "next"),
     CACHE_NESTED: ("npm", "next"),
@@ -77,6 +83,65 @@ class FrameworkTests(unittest.TestCase):
                         self.assertEqual(result["applicability"], "unknown")
                         self.assertEqual(result["evidence_refs"]["inventory"], "image-inventory-70")
                         self.assertTrue(any(u.startswith("https://") for u in result["sources"]))
+
+    def test_craft_server_package_and_fix_boundaries(self):
+        for advisory, last, first in (
+            (CRAFT_PHP, "3.9.13", "3.9.14"), (CRAFT_PHP, "4.13.1.1", "4.13.2"),
+            (CRAFT_PHP, "5.5.1.1", "5.5.2"), (CRAFT_CORE, "3.9.14", "3.9.15"),
+            (CRAFT_CORE, "4.14.14", "4.14.15"), (CRAFT_CORE, "5.6.16", "5.6.17"),
+            (CRAFT_KEY, "4.13.7", "4.13.8"), (CRAFT_KEY, "5.5.4", "5.5.8"),
+        ):
+            for tag, expected in ((last, "affected_version"), ("v" + first, "vendor_fix_present")):
+                with self.subTest(advisory=advisory, tag=tag):
+                    row = self.check(deployment(advisory, tag))
+                    self.assertEqual((row["patch_status"], row["first_fixed_in_range"], row["version"]),
+                                     (expected, first, tag.removeprefix("v")))
+
+    def test_craft_initial_release_candidates_unpublished_versions_and_advisory_gap(self):
+        for advisory, tag, want in (
+            (CRAFT_PHP, "3.0.0-RC17.1", "unknown"), (CRAFT_CORE, "3.0.0-RC17.1", "affected_version"),
+            (CRAFT_PHP, "4.0.0-RC1", "affected_version"), (CRAFT_KEY, "5.0.0-RC1", "affected_version"),
+            (CRAFT_KEY, "3.0.0-RC1", "unknown"), (CRAFT_KEY, "3.9.14", "unknown"), (CRAFT_KEY, "5.5.6.2", "unknown"),
+            (CRAFT_PHP, "4.0.0-beta.1", "unknown"), (CRAFT_CORE, "6.0.0", "unknown"),
+        ):
+            with self.subTest(advisory=advisory, tag=tag):
+                self.assertEqual(self.check(deployment(advisory, tag))["patch_status"], want)
+        for tag in ("5.5.5", "5.5.6", "5.5.6.1", "5.5.7"):
+            row = self.check(deployment(CRAFT_KEY, tag))
+            self.assertEqual((row["patch_status"], row["first_fixed_in_range"], row["version"]), ("unknown", None, tag))
+            self.assertIn("5.5.8", row["patch_reason"])
+
+    def test_craft_confirmed_incident_and_serving_settings(self):
+        for advisory, flag, value, expected in (
+            (CRAFT_KEY, "active_craft_key_compromise_confirmed", True, "conditions_present"),
+            (CRAFT_KEY, "active_craft_key_compromise_confirmed", False, "unknown"),
+            (CRAFT_KEY, "active_craft_key_compromise_confirmed", None, "unknown"),
+            (CRAFT_PHP, "php_register_argc_argv_enabled", True, "conditions_present"),
+            (CRAFT_PHP, "php_register_argc_argv_enabled", False, "conditions_absent"),
+        ):
+            data = deployment(advisory, "5.5.1.1")
+            cfg = configuration(**{flag: value})
+            with self.subTest(advisory=advisory, flag=value):
+                row = self.check({**data, "applicability": cfg})
+                self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", expected))
+                old = self.check({**data, "applicability": {**cfg, "build": "old-release"}})
+                self.assertEqual(old["applicability"], "unknown")
+                self.assertIsNone(old["evidence_refs"]["configuration"])
+        for fields in ({"package": "craftcms/craft"}, {"package": "craftcms/security-patches"},
+                       {"origin": "distribution"}, {"origin": "custom"}, {"deployment_verified": False}):
+            with self.subTest(fields=fields):
+                row = self.check(deployment(CRAFT_CORE, "5.6.17", **fields))
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
+
+    def test_craft_packaged_examples(self):
+        for advisory, patch, feature in (
+            (CRAFT_PHP, "vendor_fix_present", "conditions_absent"),
+            (CRAFT_KEY, "unknown", "conditions_present"),
+            (CRAFT_CORE, "affected_version", "unknown"),
+        ):
+            sample = json.loads((ROOT / "examples" / f"{advisory}.json").read_bytes())
+            row = self.check(sample)
+            self.assertEqual((row["patch_status"], row["applicability"]), (patch, feature))
 
     def test_livewire_published_releases_and_fix_boundary(self):
         for versions, verdict, first_fix in (
