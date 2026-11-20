@@ -2,7 +2,8 @@ services:
   vulnerable:
     image: php:8.5.12-apache
     security_opt: ["seccomp:unconfined"]
-    command: ["setarch", "-R", "docker-php-entrypoint", "apache2-foreground"]
+    cap_add: ["SYS_PTRACE"]
+    command: ["sh", "-c", "printf 'session.upload_progress.verbose=1\\n' > /usr/local/etc/php/conf.d/up.ini && exec setarch -R docker-php-entrypoint apache2-foreground"]
     volumes: ["./fixture/:/var/www/html/"]
     ports: ["127.0.0.1:8091:80"]
   patched:

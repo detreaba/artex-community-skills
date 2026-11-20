@@ -4,3 +4,6 @@ php:8.3.37 (official, PIE)	0x5845d0	0x576a10	0xDBC0	same delta; both symbols shi
 ubuntu php 8.5.4 (external reference profile)	unknown	unknown	0x43EF0	from payload header; not this lab's build
 php:8.5.12-apache	0x7c11a0	0x70a670	0xB6B30	measured 2026-11-20 06:42; maps base 0x7ffff3200000 under setarch -R; runtime DTOR_V=0x7ffff39c11a0
 php:8.5.13-apache	0x7c4720	0x70d940	0xB6DE0	runtime DTOR_P=0x7ffff69c4720; DELTA DIFFERS from .12 — per-build deltas mandatory on 8.5 line
+php:8.5.12-fpm	zval_ptr_dtor 0x834c20; zend_call_function 0x77e0f0	0xB6B30	base 0x555555400000 setarch-R; DTOR_V_fpm=0x555555C34C20; trigger verified live via gdb (6 updates, stale stores at #5/#6); no fire — reclaim geometry drift suspected vs 8.5.4 author profile
+php:8.5.13-fpm	zval_ptr_dtor 0x838220; zend_call_function 0x781440	0xB6DE0	base 0x555555400000 setarch-R; DTOR_P_fpm=0x555555C38220
+php:8.5.12-cli	zval_ptr_dtor 0x8334a0; zend_call_function 0x77c970	0xB6B30	r-x at 555555600000+0x200000 => load base 0x555555400000; DTOR_V_cli=0x555555C334A0 (earlier CLI runs had used 8.3-era default — invalid)

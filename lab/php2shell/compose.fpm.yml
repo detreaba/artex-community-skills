@@ -1,0 +1,22 @@
+services:
+  fpm:
+    image: php:8.5.12-fpm
+    security_opt: ["seccomp:unconfined"]
+    # setarch -R for deterministic PIE base so profile addresses hold (lab fixture only)
+    command: ["setarch", "-R", "php-fpm", "-F"]
+    volumes: ["./fixture/:/var/www/html/:ro"]
+  nginx:
+    image: nginx:1.27-alpine
+    volumes: ["./nginx.fpm.conf:/etc/nginx/conf.d/default.conf:ro"]
+    ports: ["127.0.0.1:8093:80"]
+    depends_on: [fpm]
+  fpm-p:
+    image: php:8.5.13-fpm
+    security_opt: ["seccomp:unconfined"]
+    command: ["setarch", "-R", "php-fpm", "-F"]
+    volumes: ["./fixture/:/var/www/html/:ro"]
+  nginx-p:
+    image: nginx:1.27-alpine
+    volumes: ["./nginx.fpm.conf:/etc/nginx/conf.d/default.conf:ro"]
+    ports: ["127.0.0.1:8094:80"]
+    depends_on: [fpm-p]
