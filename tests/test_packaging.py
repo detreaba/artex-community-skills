@@ -35,7 +35,7 @@ class PackageTests(unittest.TestCase):
     def test_release_catalogs_are_required_only_for_the_framework_reader(self):
         skill = self.skill.rename(self.root / "skills" / "framework-patch-review")
         (skill / "SKILL.md").write_text("---\nname: framework-patch-review\n---\n")
-        catalogs = ("craft-releases.txt", "react-server-dom.sri")
+        catalogs = ("craft-releases.txt", "react-server-dom.sri", "drupal-releases.txt")
         for directory in (skill, self.root / "skills" / "second-skill"):
             for name in catalogs:
                 (directory / "scripts" / name).write_text("example catalog\n")
