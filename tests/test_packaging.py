@@ -32,18 +32,25 @@ class PackageTests(unittest.TestCase):
                 target.write_text(content)
         self.skill = self.root / "skills" / "first-skill"
 
-    def test_craft_release_list_is_required_only_for_the_framework_reader(self):
+    def test_release_catalogs_are_required_only_for_the_framework_reader(self):
         skill = self.skill.rename(self.root / "skills" / "framework-patch-review")
         (skill / "SKILL.md").write_text("---\nname: framework-patch-review\n---\n")
-        with self.assertRaises(ValueError):
-            build(self.root)
+        catalogs = ("craft-releases.txt", "react-server-dom.sri")
         for directory in (skill, self.root / "skills" / "second-skill"):
-            (directory / "scripts" / "craft-releases.txt").write_text("3.9.14\n")
+            for name in catalogs:
+                (directory / "scripts" / name).write_text("example catalog\n")
+        for name in catalogs:
+            path = skill / "scripts" / name
+            path.unlink()
+            with self.assertRaises(ValueError):
+                build(self.root)
+            path.write_text("example catalog\n")
         build(self.root)
         for archive in (self.root / "dist").glob("*.zip"):
             with ZipFile(archive) as bundle:
-                included = archive.stem + "/scripts/craft-releases.txt" in bundle.namelist()
-                self.assertEqual(included, archive.stem == skill.name)
+                for name in catalogs:
+                    included = f"{archive.stem}/scripts/{name}" in bundle.namelist()
+                    self.assertEqual(included, archive.stem == skill.name)
 
     def test_reproducible_complete_packages_and_manifest(self):
         build(self.root)

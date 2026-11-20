@@ -143,6 +143,47 @@ class FrameworkTests(unittest.TestCase):
             row = self.check(sample)
             self.assertEqual((row["patch_status"], row["applicability"]), (patch, feature))
 
+    def test_react_npm_release_boundaries_and_missing_parcel_line(self):
+        pins = {}
+        for line in (ROOT / "scripts/react-server-dom.sri").read_text().splitlines():
+            name, version, integrity = line.split()
+            pins[name, version] = integrity
+        for name in ("react-server-dom-webpack", "react-server-dom-turbopack", "react-server-dom-parcel"):
+            for v, fixed in (("19.0.0", "19.0.1"), ("19.0.1", "19.0.1"), ("19.1.0", "19.1.2"),
+                             ("19.1.1", "19.1.2"), ("19.1.2", "19.1.2"), ("19.2.0", "19.2.1"), ("19.2.1", "19.2.1")):
+                with self.subTest(package=name, version=v):
+                    sample = json.loads((ROOT / "examples/CVE-2025-55182.json").read_bytes())
+                    inv = sample["inventory"]
+                    inv.update(package=name, version=v)
+                    inv["serving_package"].update(package=name, version=v, integrity=pins.get((name, v)))
+                    missing = name.endswith("-parcel") and v.startswith("19.0.")
+                    expected = "unknown" if missing else "vendor_fix_present" if v == fixed else "affected_version"
+                    row = self.check(sample)
+                    self.assertEqual((row["package"], row["patch_status"], row["first_fixed_in_range"]),
+                                     (name, expected, None if missing else fixed))
+
+    def test_react_requires_loaded_package_content_and_scope(self):
+        template = (ROOT / "examples/CVE-2025-55182.json").read_bytes()
+        for updates in ({"ref": "inventory-22"}, {"version": "19.1.2"}, {"build": "other-build"},
+                        {"source": "lockfile"}, {"package": "next"}, {"contents_verified": 1},
+                        {"integrity": "sha512-" + "A" * 86 + "=="}):
+            with self.subTest(updates=updates):
+                sample = json.loads(template)
+                sample["inventory"]["serving_package"].update(updates)
+                row = self.check(sample)
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"], row["version"]),
+                                 ("unknown", None, None))
+
+    def test_react_feature_evidence_is_independent_of_package_patch_status(self):
+        sample = json.loads((ROOT / "examples/CVE-2025-55182.json").read_bytes())
+        for value, observed in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+            sample["applicability"]["conditions"]["server_supports_react_server_components"] = value
+            row = self.check(sample)
+            self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", observed))
+        sample["applicability"].update(build="different")
+        sample["applicability"]["conditions"]["server_supports_react_server_components"] = False
+        self.assertEqual(self.check(sample)["applicability"], "unknown")
+
     def test_livewire_published_releases_and_fix_boundary(self):
         for versions, verdict, first_fix in (
             (("v3.0.0-beta.1", "3.0.0-beta.11", "3.0.0", "3.6.2", "3.6.3"), "affected_version", "3.6.4"),

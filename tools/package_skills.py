@@ -28,6 +28,7 @@ def files_for_skill(skill):
     entries = [skill / name for name in FIXED_FILES] + tests + advisory_examples
     if skill.name == "framework-patch-review":
         entries.append(skill / "scripts" / "craft-releases.txt")
+        entries.append(skill / "scripts" / "react-server-dom.sri")
     for entry in entries:
         if entry.is_symlink() or not entry.is_file():
             raise ValueError(f"Expected a regular package file: {entry}")
