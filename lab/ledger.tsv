@@ -2,5 +2,5 @@ slug	author	reviewers	harness_control	differential	evidence_dir	status	notes
 php2shell			pass	not-run	php2shell/evidence/20261120T042433Z	ready	Both probes exited 0 and captured HTTP 404.
 node2shell			pass	not-run	node2shell/evidence/20261120T042447Z	ready	Both probes exited 0 and captured HTTP 200.
 nginx2shell			pass	not-run	nginx2shell/evidence/20261120T042608Z	ready	Both probes exited 0 and captured HTTP 200.
-ruby-onigmo			pass	not-run	ruby-onigmo/evidence/20261120T043535Z	candidate	Fixture fixed (webrick gem needed on Ruby 3.x); re-run exited 0, HTTP 200 both halves.
+ruby-onigmo			pass	not-run	ruby-onigmo/evidence/20261120T044627Z	candidate	Both probes exited 0 and captured HTTP 200.
 java4shell			pass	not-run	java4shell/evidence/20261120T042736Z	candidate	Both probes exited 56. Both connections were reset by peer.
