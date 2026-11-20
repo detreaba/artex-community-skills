@@ -66,10 +66,13 @@ For CVE-2026-109619, this synthetic worker-pool record gives `affected_version`,
 Report the named advisory, build, evidence references, and `patch_status`. For `affected_version`, identify the first fixed release on that branch and request a fresh inventory after updating. For `vendor_fix_present`, limit the statement to this patch. For `unknown`, use `patch_reason` to request the missing evidence.
 
 `outside_affected_range` means the vendor explicitly places this upstream branch outside the advisory's affected range. Quote `patch_reason`, which carries the vendor's statement. The result applies to that advisory only and is not a fix verdict for any other.
-- **Where it applies:**
+- **Where it applies:** published releases only.
   - CVE-2026-129481 on PHP 8.2 and earlier;
   - CVE-2026-129182 on PHP 8.4 and earlier;
   - CVE-2026-129474 on PHP 8.2 to 8.4. For this one, the vendor says the underlying error is present but has no known remote trigger, so mention its limitation.
+- **What counts as published:** a release in PHP's release index on php.net, or a later patch on a branch PHP still supports.
+  - The index has no 6.x, no 7.5 and no 8.1.35, and it skips a few patch numbers such as 8.4.0 and 8.3.18.
+  - A version it doesn't list reads `unknown`, so reconcile the inventory with the serving binary.
 - **What stays `unknown`:** any line the vendor doesn't name, such as 8.1 for CVE-2026-129474, and every distributor build. If the checker emits `invalid_input`, request a corrected record or a vendor assessment for an unsupported CVE.
 
 Report `applicability` separately. A verified affected version warrants patch review even when the relevant configuration is absent. When an application feature is present, further case-specific evidence is needed to assess application impact. Preserve the checker's limitations alongside its result.

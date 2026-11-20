@@ -301,7 +301,19 @@ class RuntimePatchTests(unittest.TestCase):
                 # GHSA-2fjv-p558-g82m: "PHP 8.4 and earlier do not contain the global and are not affected."
                 (PHP_SHUTDOWN_BACKTRACE, "8.1.34", out, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.27", out, None),
                 (PHP_SHUTDOWN_BACKTRACE, "8.5.12", aff, "8.5.13"), (PHP_SHUTDOWN_BACKTRACE, "8.5.13", fix, "8.5.13"),
-                (PHP_SHUTDOWN_BACKTRACE, "8.6.0", fix, "8.6.0"), (PHP_SHUTDOWN_BACKTRACE, "8.7.0", unk, None)):
+                (PHP_SHUTDOWN_BACKTRACE, "8.6.0", fix, "8.6.0"), (PHP_SHUTDOWN_BACKTRACE, "8.7.0", unk, None),
+                # Codex, #43: an exclusion needs a release in PHP's release index. 6.x, 7.5, 8.1.35 and the index's
+                # gaps were never published; later patches on a supported branch stay covered.
+                (PHP_SESSION_SHUTDOWN, "6.0.0", unk, None), (PHP_SESSION_SHUTDOWN, "7.5.0", unk, None),
+                (PHP_SESSION_SHUTDOWN, "8.1.35", unk, None), (PHP_SESSION_SHUTDOWN, "5.2.7", unk, None),
+                (PHP_SESSION_SHUTDOWN, "7.4.17", unk, None), (PHP_SESSION_SHUTDOWN, "8.0.4", unk, None),
+                (PHP_SESSION_SHUTDOWN, "5.2.17", out, None), (PHP_SESSION_SHUTDOWN, "8.2.37", out, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.0", unk, None), (PHP_MAGIC_BACKTRACE, "8.3.18", unk, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.9", unk, None), (PHP_MAGIC_BACKTRACE, "8.4.1", out, None),
+                (PHP_MAGIC_BACKTRACE, "8.4.29", out, None),
+                (PHP_SHUTDOWN_BACKTRACE, "6.0.0", unk, None), (PHP_SHUTDOWN_BACKTRACE, "8.1.35", unk, None),
+                (PHP_SHUTDOWN_BACKTRACE, "8.3.34", unk, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.0", unk, None),
+                (PHP_SHUTDOWN_BACKTRACE, "8.3.35", out, None), (PHP_SHUTDOWN_BACKTRACE, "8.4.29", out, None)):
             with self.subTest(advisory=advisory, version=version):
                 row = self.php_cli(advisory, version)
                 self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
@@ -310,6 +322,7 @@ class RuntimePatchTests(unittest.TestCase):
         reason = self.php_cli(PHP_MAGIC_BACKTRACE, "8.4.27")["patch_reason"]
         self.assertIn("no known remote trigger", reason)
         self.assertNotIn("not affected", reason)
+        self.assertIn("release index", self.php_cli(PHP_SESSION_SHUTDOWN, "8.1.35")["patch_reason"])
 
     def test_exclusions_need_a_verified_stable_upstream_release(self):
         for advisory in NOV_BRANCH:
