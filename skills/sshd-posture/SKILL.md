@@ -76,17 +76,20 @@ directions independently, so:
   direction offering none of the required set is a `gap`, so a required algorithm
   present in only one direction is still a `gap` (fail-closed, not the union);
 - otherwise `pass`;
-- a category the observation did not fully capture (no KEXINIT read, or a
-  direction's name-list missing) → `unknown` — **unless** a captured direction
-  already shows a forbidden algorithm or is missing a required one, which still
-  decides `gap`;
+- when **no KEXINIT was read** (`kexinit_read` false or absent) the offer was not
+  captured, so every category reads `unknown` and the name-lists are not consulted;
+- within a read KEXINIT, a direction whose name-list is **missing** → `unknown`,
+  **unless** a captured direction already shows a forbidden algorithm or is missing
+  a required one, which still decides `gap`;
 - an **empty** captured name-list (length 0 on the wire) is a real empty offer,
   distinct from an omitted field: it offers nothing, so it fails a `required`
   check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction
   reads `unknown`;
-- a captured name-list or a policy list carrying a **non-string element** is
-  malformed → `unknown` (a forbidden algorithm positively seen among the valid
-  names still decides `gap`).
+- a captured name-list carrying a **non-string element** is malformed → `unknown`
+  (a forbidden algorithm positively seen among the valid names still decides
+  `gap`); likewise a policy category or section that is present but **null**, or
+  not a list of strings, is malformed → `unknown`, while one that is simply absent
+  is no constraint.
 
 Matching is **exact token equality** and case-sensitive (RFC 4251 §6): a policy
 name matches an offered name only when the whole tokens are identical, never by

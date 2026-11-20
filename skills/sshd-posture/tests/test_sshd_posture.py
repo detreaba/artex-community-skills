@@ -406,6 +406,61 @@ class VerdictRules(unittest.TestCase):
         rec["policy"] = {"forbiden": {"cipher": ["3des-cbc"]}}
         self.assertEqual(check.evaluate(rec)["overall"], "unknown")
 
+    def test_named_null_policy_category_is_unknown(self):
+        # F-SSH-16: a NAMED policy category whose value is JSON null is malformed
+        # (not a silent omit) -- the forbidden rule is not dropped; fail closed.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": None},
+                         "required": {"mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+        self.assertEqual(out["overall"], "unknown")
+
+    def test_null_forbidden_section_does_not_mask_required_gap(self):
+        # A present-but-null forbidden section is unusable, but it must NOT mask a
+        # definite required gap from the well-formed half: required cipher chacha20
+        # vs an offer of only 3des-cbc -> gap (not unknown).
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": None,
+                         "required": {"cipher": ["chacha20-poly1305@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["overall"], "gap")
+
+    def test_unknown_policy_key_does_not_mask_a_gap(self):
+        # A well-formed forbidden rule that gaps still gaps even when the policy
+        # also carries an unknown category key alongside it.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"], "ciphers": []}}
+        self.assertEqual(check.evaluate(rec)["overall"], "gap")
+
+    def test_null_required_half_does_not_mask_forbidden_gap(self):
+        # forbidden.cipher gaps on 3des-cbc; a null required.cipher (malformed half)
+        # must not downgrade that definite gap to unknown.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"]},
+                         "required": {"cipher": None}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "gap")
+
+    def test_absent_policy_category_is_no_constraint(self):
+        # Control for F-SSH-16: a category simply ABSENT (not null) is no
+        # constraint -- an unrelated offer is not judged against it.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"],
+                        mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                        mac_s2c=["hmac-sha2-256-etm@openssh.com"])
+        rec["policy"] = {"forbidden": {"mac": ["hmac-md5"]},
+                         "required": {"mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        out = check.evaluate(rec)
+        self.assertNotIn("cipher", out["per_category"])
+        self.assertEqual(out["overall"], "pass")
+
+    def test_no_kexinit_read_is_unknown_even_with_namelists(self):
+        # Pre-empts the kexinit_read contradiction: if the observer did not read a
+        # KEXINIT, stray name-lists are not trusted -> unknown (the flag gates).
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["kexinit_read"] = False
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+        self.assertEqual(out["overall"], "unknown")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")

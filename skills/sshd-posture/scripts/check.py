@@ -25,20 +25,22 @@ _FIELDS = {
 
 def _policy_set(policy, kind, category):
     """Return (algorithms, malformed): the policy set for a category, and whether
-    the policy named this category but in an unusable shape -- so the category
-    must read unknown rather than silently pass."""
-    section = policy.get(kind)
-    if section is None:
-        return set(), False
+    the policy named this category (or its section) but in an unusable shape -- so
+    the category must read unknown rather than silently pass. A category or section
+    that is simply absent is no constraint; one that is present but null, or not a
+    list of strings, is malformed (fail closed)."""
+    if kind not in policy:
+        return set(), False  # this kind is not constrained
+    section = policy[kind]
     if not isinstance(section, dict):
-        return set(), True
-    vals = section.get(category)
-    if vals is None:
-        return set(), False
+        return set(), True   # present but not an object (null, string, ...)
+    if category not in section:
+        return set(), False  # this category is not constrained
+    vals = section[category]
     if not isinstance(vals, list):
-        return set(), True
+        return set(), True   # present but null / not a list -> unusable policy
     if not all(isinstance(v, str) for v in vals):
-        return set(), True  # a non-string element -> unusable policy, read unknown
+        return set(), True   # a non-string element -> unusable policy, read unknown
     return set(vals), False
 
 
@@ -51,7 +53,9 @@ def _category_verdict(record, category, forbidden, required):
     a required algorithm present in only one direction is still a gap. Fails
     closed: when nothing above decided the category and a direction's name-list was
     not captured, it reads unknown rather than pass."""
-    if not record.get("kexinit_read"):
+    if record.get("kexinit_read") is not True:
+        # No KEXINIT was fully read (false, absent, or non-boolean). A truncated
+        # KEXINIT can leave partial name-lists in the record; they are not trusted.
         return "unknown"
     clean_directions = []  # directions whose every element was a string
     seen = set()           # every string name offered across captured directions
@@ -99,45 +103,44 @@ def evaluate(record):
     if not isinstance(policy, dict):
         policy = {}
 
-    # A policy that names keys outside the schema was probably mistyped (e.g.
-    # "ciphers" for "cipher", or "forbiden" for "forbidden"); applying it would
-    # silently drop the operator's rule, so fail closed rather than read a false
-    # pass.
+    # Policy-shape problems (a key outside the schema, e.g. "ciphers" for "cipher"
+    # or "forbiden" for "forbidden"; a null / non-object section). These NEVER mask
+    # a definite gap -- they only turn an otherwise-clean category or the overall
+    # verdict into unknown, so a mistyped rule fails closed rather than reading a
+    # false pass, while a well-formed rule that gaps still gaps.
+    policy_problems = []
     unknown_top = sorted(k for k in policy if k not in ("forbidden", "required"))
     if unknown_top:
-        return {"overall": "unknown",
-                "reason": "policy names unknown keys: %s" % ", ".join(unknown_top),
-                "per_category": {}}
+        policy_problems.append("policy names unknown keys: %s" % ", ".join(unknown_top))
     for _kind in ("forbidden", "required"):
-        _section = policy.get(_kind)
-        if isinstance(_section, dict):
-            _unknown = sorted(k for k in _section if k not in CATEGORIES)
+        if _kind in policy and not isinstance(policy[_kind], dict):
+            policy_problems.append("policy.%s is not an object" % _kind)
+        elif isinstance(policy.get(_kind), dict):
+            _unknown = sorted(k for k in policy[_kind] if k not in CATEGORIES)
             if _unknown:
-                return {"overall": "unknown",
-                        "reason": "policy.%s names unknown categories: %s"
-                                  % (_kind, ", ".join(_unknown)),
-                        "per_category": {}}
+                policy_problems.append("policy.%s names unknown categories: %s"
+                                       % (_kind, ", ".join(_unknown)))
 
     per_category = {}
     for cat in CATEGORIES:
         forbidden, f_bad = _policy_set(policy, "forbidden", cat)
         required, r_bad = _policy_set(policy, "required", cat)
-        if f_bad or r_bad:
-            per_category[cat] = "unknown"  # policy named this category but is malformed
-            continue
-        if not forbidden and not required:
+        if not forbidden and not required and not f_bad and not r_bad:
             continue  # the operator expressed no policy for this category
-        per_category[cat] = _category_verdict(record, cat, forbidden, required)
+        # Judge with whatever is well-formed; a malformed half never masks a gap,
+        # it only downgrades an otherwise-clean verdict to unknown.
+        verdict = _category_verdict(record, cat, forbidden, required)
+        if verdict != "gap" and (f_bad or r_bad):
+            verdict = "unknown"
+        per_category[cat] = verdict
 
     verdicts = list(per_category.values())
-    if not verdicts:
-        overall = "unknown"
-    elif any(v == "gap" for v in verdicts):
+    if any(v == "gap" for v in verdicts):
         overall = "gap"
-    elif all(v == "pass" for v in verdicts):
-        overall = "pass"
-    else:
+    elif policy_problems or not verdicts or any(v != "pass" for v in verdicts):
         overall = "unknown"
+    else:
+        overall = "pass"
 
     notes = [
         "Offered algorithms only -- not what a specific client negotiates, nor "
@@ -151,6 +154,8 @@ def evaluate(record):
         notes.append("advisory: the identification string declares SSH protocol "
                      "%s; SSH-1 support is not confirmed here (it would need an "
                      "SSH-1 handshake, which this check does not perform)." % proto)
+    for problem in policy_problems:
+        notes.append("%s (unusable, fails closed to unknown)" % problem)
 
     return {
         "overall": overall,
