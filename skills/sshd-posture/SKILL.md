@@ -33,14 +33,16 @@ Reads one JSON request on stdin and prints an observation record:
   gives an `invalid_input` record and no connection is made. `port` defaults
   to 22.
 - One TCP connection, 5s timeouts, no retries.
-- It reads the server's identification line(s) (RFC 4253 §4.2), discarding any
+- It sends its own client identification line (`SSH-2.0-artex-sshd-posture-observer`)
+  **first**, immediately on connect, then reads the server's identification
+  line(s) (RFC 4253 §4.2, which lets either peer send first), discarding any
   pre-banner lines until the `SSH-` line — bounded by the observation window and
-  a per-line length cap, not a line count or total size. It then sends one client
-  identification line (`SSH-2.0-artex-sshd-posture-observer`) and one
-  `SSH_MSG_KEXINIT` — the
-  transport offer that elicits the server's KEXINIT even from a server that waits
-  to read the client's first. It never sends `SSH_MSG_NEWKEYS`, completes key
-  exchange, authenticates, opens a channel, or sends application data.
+  a per-line length cap, not a line count or total size. Sending first keeps a
+  server that withholds its identification until it has read the client's from
+  deadlocking the read. It then sends one `SSH_MSG_KEXINIT` — the transport offer
+  that elicits the server's KEXINIT even from a server that waits to read the
+  client's first. It never sends `SSH_MSG_NEWKEYS`, completes key exchange,
+  authenticates, opens a channel, or sends application data.
 - It reads binary transport packets, skipping any number of `SSH_MSG_IGNORE` /
   `DEBUG` / `UNIMPLEMENTED` that precede key exchange (RFC 4253 §11 sets no count
   limit; bounded instead by a total-time observation window), until the server's

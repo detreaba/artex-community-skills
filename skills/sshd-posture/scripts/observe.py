@@ -7,10 +7,12 @@ Reads one JSON request on stdin::
      "policy": {"forbidden": {...}, "required": {...}},
      "authorization_ref": "..."}
 
-It opens ONE TCP connection to one operator-named SSH endpoint, reads the
+It opens ONE TCP connection to one operator-named SSH endpoint, sends its own
+identification line first (RFC 4253 Sec. 4.2/5.2 allow sending before the server's
+arrives, and some servers withhold theirs until they read the client's), reads the
 server's identification string and its ``SSH_MSG_KEXINIT``, and prints an
-observation record that ``scripts/check.py`` reads offline. Standard library
-only; Python 3.9+.
+observation record that ``scripts/check.py`` reads offline. Standard library only;
+Python 3.9+.
 
 Scope and safety. One endpoint per run; ``authorization_ref`` is mandatory; a
 list/range/wildcard host or a non-IP pinned ``address`` is ``invalid_input``.
@@ -174,6 +176,18 @@ def observe(req):
         sock.settimeout(TIMEOUT)
         record["connections_made"] = 1
 
+        # Send our identification line immediately, BEFORE reading the server's.
+        # RFC 4253 Sec. 4.2 does not specify an order (both sides MUST send), and
+        # Sec. 5.2 lets a client send before receiving the server's identification;
+        # some servers withhold theirs until they have read the client's, so reading
+        # first would deadlock. The send is best-effort: a peer that has already
+        # sent its banner + KEXINIT and closed may reset us here, but its bytes are
+        # still readable, so a failure is noted, not fatal.
+        try:
+            sock.sendall(CLIENT_IDENT)
+        except OSError as exc:
+            record["notes"].append("could not send client identification: %s" % exc)
+
         banner, leftover = _read_identification(sock, time.monotonic() + TIMEOUT)
         if banner is None:
             record["notes"].append("no SSH identification string within the observation window")
@@ -184,12 +198,16 @@ def observe(req):
             record["protocol"] = parts[1]
             record["software"] = parts[2].split(" ", 1)[0]
 
-        # Send our identification line and one KEXINIT: the transport-level offer
-        # that elicits the server's KEXINIT even from a server that waits to read
-        # the client's first. We never send NEWKEYS, complete key exchange,
-        # authenticate, open a channel, or send any application data.
-        sock.sendall(CLIENT_IDENT)
-        sock.sendall(_client_kexinit())
+        # One KEXINIT: the transport-level offer that elicits the server's KEXINIT
+        # even from a server that waits to read the client's first. We never send
+        # NEWKEYS, complete key exchange, authenticate, open a channel, or send any
+        # application data. Best-effort: if the peer already sent its KEXINIT (in
+        # `leftover` or still readable) and closed, this send may fail -- note it
+        # and parse what was received rather than discarding a captured KEXINIT.
+        try:
+            sock.sendall(_client_kexinit())
+        except OSError as exc:
+            record["notes"].append("could not send client KEXINIT: %s" % exc)
 
         buf = bytearray(leftover)
         deadline = time.monotonic() + TIMEOUT

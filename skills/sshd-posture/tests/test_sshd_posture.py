@@ -85,11 +85,14 @@ class Fixture:
     """A one-shot loopback SSH-ish listener: sends a banner, then (optionally) a
     KEXINIT packet, then closes."""
 
-    def __init__(self, banner, packet=b"", send_packet=True, proactive=False):
+    def __init__(self, banner, packet=b"", send_packet=True, proactive=False,
+                 wait_ident=False, write_close=False):
         self.banner = banner
         self.packet = packet
         self.send_packet = send_packet
         self.proactive = proactive
+        self.wait_ident = wait_ident
+        self.write_close = write_close
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("127.0.0.1", 0))
@@ -105,7 +108,19 @@ class Fixture:
         try:
             conn, _ = self.srv.accept()
             conn.settimeout(5)
-            if self.proactive:
+            if self.write_close:
+                # Server sends banner + KEXINIT, then closes WITHOUT reading the
+                # observer's writes (no drain), so the observer's later KEXINIT send
+                # fails. The already-sent bytes stay readable on POSIX.
+                conn.sendall(self.banner + (self.packet if self.send_packet else b""))
+                conn.close()
+            elif self.wait_ident:
+                # Server withholds its identification string until it has read the
+                # client's SSH- identification line, then sends banner + KEXINIT.
+                self._read_client_ident(conn)
+                conn.sendall(self.banner + (self.packet if self.send_packet else b""))
+                self._drain(conn)
+            elif self.proactive:
                 # Server writes its banner and KEXINIT before reading anything, so
                 # the observer parses the KEXINIT from the bytes trailing the
                 # banner. Drain the observer's writes so closing never races them.
@@ -136,6 +151,15 @@ class Fixture:
                 pass
         except OSError:
             pass
+
+    @staticmethod
+    def _read_client_ident(conn):
+        buf = b""
+        while b"\n" not in buf:
+            chunk = conn.recv(256)
+            if not chunk:
+                raise OSError("client closed before identification")
+            buf += chunk
 
     @staticmethod
     def _read_client_kexinit(conn):
@@ -736,6 +760,41 @@ class LoopbackParser(unittest.TestCase):
             rec = observe.observe(_req(fx.port, {"forbidden": {"cipher": ["3des-cbc"]}}))
         self.assertEqual(rec["encryption_c2s"], [])  # genuine empty offer
         self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
+
+    def test_waits_for_client_identification_before_banner(self):
+        # F-SSH-23: a server that withholds its identification string until it has
+        # read the client's SSH- line. observe.py sends its identification first
+        # (RFC 4253 Sec. 4.2 allows either peer first), so the server's KEXINIT --
+        # with a forbidden kex -- is still captured -> gap, not a timeout -> unknown.
+        packet = build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"],
+            enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-WaitIdent_1.0\r\n", packet, wait_ident=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["kex"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    @unittest.skipIf(sys.platform.startswith("win"),
+                     "Windows recv discards buffered data on RST; validated on Linux CI")
+    def test_peer_closes_before_observer_finishes_sending(self):
+        # The observer's best-effort KEXINIT send fails against a peer that already
+        # sent its banner + KEXINIT (forbidden kex) and closed; the send failure
+        # must be noted, not fatal, so the KEXINIT already received is still parsed
+        # -> gap, never discarded to unknown. (POSIX keeps the buffered bytes
+        # readable after the peer's close; Windows recv may not, hence skipped.)
+        packet = build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-WriteClose_1.0\r\n", packet, write_close=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["overall"], "gap")
 
     def test_skips_ignore_and_debug_before_kexinit(self):
         # F-SSH-2: a server may send SSH_MSG_IGNORE / DEBUG before KEXINIT; the
