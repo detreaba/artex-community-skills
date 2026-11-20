@@ -429,6 +429,19 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(rec["protocol"], "2.0")
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
 
+    def test_long_pre_banner_line_under_per_line_cap(self):
+        # A 300 B pre-banner line (over RFC 4253 4.2's SHOULD-NOT 255, well under
+        # the 4096 B per-line memory cap) is discarded and the identification read.
+        banner = (b"y" * 298 + b"\r\n") + b"SSH-2.0-OpenSSH_9.6\r\n"
+        kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                mac=["hmac-sha2-256"])
+        with Fixture(banner, kexinit, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(rec["software"], "OpenSSH_9.6")
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
     def test_many_pre_banner_lines_then_identification(self):
         # F-SSH-7: 80 valid CRLF pre-banner lines (~9.9 KB, over the old 64-line /
         # 8 KiB cap), then the SSH- identification and a KEXINIT on the same send ->
