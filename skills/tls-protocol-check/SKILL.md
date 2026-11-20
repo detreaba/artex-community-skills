@@ -79,9 +79,10 @@ Verdict rules:
   *only when some handshake in the same run completed*; otherwise `unknown`.
 - **must-accept version:** `negotiated` → `pass`. `version_refused` (same
   condition) → `gap`; otherwise `unknown`.
-- **control handshake:** if the full-range control negotiated a must-refuse
-  version, that version is a `gap` — the server accepted it when offered the
-  whole range, even if the single-version attempt was refused.
+- **negotiated evidence:** if any completed handshake — a single-version attempt
+  or the full-range control — negotiated a must-refuse version, that version is a
+  `gap`; the server accepted it. A must-accept version is a `pass` only when that
+  exact version was the one negotiated.
 - **contradictory policy:** a version in both lists is merged conservatively, a
   `gap` winning, so a must-refuse obligation is never masked by must-accept.
 - **overall:** any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown`.

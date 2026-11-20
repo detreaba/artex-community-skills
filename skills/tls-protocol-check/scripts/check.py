@@ -49,23 +49,27 @@ def _run_completed(record):
     return isinstance(control, dict) and control.get("class") == "negotiated"
 
 
-def _verdict_refuse(attempt, run_completed):
+def _verdict_refuse(attempt, version, run_completed):
     if not isinstance(attempt, dict):
         return "unknown"
     cls = attempt.get("class")
     if cls == "negotiated":
-        return "gap"
+        # A gap only when the handshake actually negotiated this version; a
+        # completed handshake that landed on some other version is covered by
+        # the run-wide negotiated-version scan in evaluate().
+        return "gap" if _NEGOTIATED_TO_VERSION.get(attempt.get("negotiated")) == version else "unknown"
     if cls == "version_refused":
         return "pass" if run_completed else "unknown"
     return "unknown"
 
 
-def _verdict_accept(attempt, run_completed):
+def _verdict_accept(attempt, version, run_completed):
     if not isinstance(attempt, dict):
         return "unknown"
     cls = attempt.get("class")
     if cls == "negotiated":
-        return "pass"
+        # A pass only when this exact version was negotiated.
+        return "pass" if _NEGOTIATED_TO_VERSION.get(attempt.get("negotiated")) == version else "unknown"
     if cls == "version_refused":
         return "gap" if run_completed else "unknown"
     return "unknown"
@@ -118,20 +122,25 @@ def evaluate(record):
         verdicts = []
         if v in must_refuse:
             roles.append("must_refuse")
-            verdicts.append(_verdict_refuse(attempts.get(v), run_completed))
+            verdicts.append(_verdict_refuse(attempts.get(v), v, run_completed))
         if v in must_accept:
             roles.append("must_accept")
-            verdicts.append(_verdict_accept(attempts.get(v), run_completed))
+            verdicts.append(_verdict_accept(attempts.get(v), v, run_completed))
         if len(roles) > 1:
             contradictory.append(v)
         per_version[v] = {"policy": "+".join(roles), "verdict": _combine(verdicts)}
 
-    # The full-range control handshake offers 1.0-1.3; if the server negotiated a
-    # must-refuse version there, it accepts that version, which is a gap even if
-    # the single-version attempt was refused or inconclusive.
+    # Any completed handshake -- a dedicated attempt or the full-range control --
+    # that negotiated a must-refuse version is direct evidence the server accepts
+    # that version, so it is a gap wherever the evidence appears.
+    negotiated = set()
+    for a in (record.get("attempts") or []):
+        if isinstance(a, dict) and a.get("class") == "negotiated":
+            negotiated.add(_NEGOTIATED_TO_VERSION.get(a.get("negotiated")))
     control = record.get("control")
     if isinstance(control, dict) and control.get("class") == "negotiated":
-        cv = _NEGOTIATED_TO_VERSION.get(control.get("negotiated"))
+        negotiated.add(_NEGOTIATED_TO_VERSION.get(control.get("negotiated")))
+    for cv in negotiated:
         if cv in must_refuse:
             entry = per_version.get(cv) or {"policy": "must_refuse", "verdict": "gap"}
             entry["verdict"] = "gap"
