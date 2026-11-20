@@ -23,7 +23,9 @@ def files_for_skill(skill):
                    if re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", f.name))
     if not tests:
         raise ValueError(f"Missing skill tests: {skill.name}")
-    entries = [skill / name for name in FIXED_FILES] + tests
+    advisory_examples = sorted(f for f in (skill / "examples").glob("CVE-*.json")
+                               if re.fullmatch(r"CVE-[0-9]{4}-[0-9]{4,}\.json", f.name))
+    entries = [skill / name for name in FIXED_FILES] + tests + advisory_examples
     for entry in entries:
         if entry.is_symlink() or not entry.is_file():
             raise ValueError(f"Expected a regular package file: {entry}")
