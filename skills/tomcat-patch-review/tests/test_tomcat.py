@@ -33,7 +33,7 @@ class TomcatTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, (run.stdout, run.stderr))
         self.assertEqual(run.stderr, b"")
         result = json.loads(run.stdout)
-        self.assertEqual(result["advisory"], ADVISORY)
+        self.assertEqual(result["advisory"], request["advisory"])
         self.assertEqual(result["applicability"], "unknown")
         return result
 
@@ -96,6 +96,56 @@ class TomcatTests(unittest.TestCase):
             with self.subTest(example=name):
                 request = json.loads((ROOT / "examples" / f"{name}.json").read_bytes())
                 self.assertEqual(self.result(request)["patch_status"], status)
+
+    def test_default_servlet_branch_boundaries_in_both_artifacts(self):
+        for bundle in (CATALINA, EMBEDDED):
+            for before, fixed, after in (("9.0.98", "9.0.99", "9.0.100"),
+                                          ("10.1.34", "10.1.35", "10.1.36"), ("11.0.2", "11.0.3", "11.0.4")):
+                for version in (before, fixed, after):
+                    with self.subTest(version=version, bundle=bundle):
+                        req = inventory(version, bundle, class_name="org.apache.catalina.servlets.DefaultServlet")
+                        req["advisory"] = "CVE-2025-24813"
+                        result = self.result(req)
+                        self.assertEqual(result["first_fixed_on_branch"], fixed)
+                        self.assertEqual(result["patch_status"], "affected_version" if version == before else "vendor_fix_present")
+
+    def test_legacy_default_servlet_needs_independent_artifact_identity(self):
+        req = json.loads((ROOT / "examples/CVE-2025-24813.json").read_bytes())
+        row = self.result(req)
+        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", None))
+        self.assertEqual(row["observed_version"], "8.5.100")
+        proof = req["inventory"].pop("maven_provenance")
+        self.assert_unknown(req)
+        for changes in ({"coordinate": "org.apache.tomcat:tomcat-tribes:8.5.100"}, {"published_sha256": "f" * 64},
+                        {"ref": ""}, {"coordinate": "org.apache.tomcat:tomcat-catalina:8.5.99"}):
+            req["inventory"]["maven_provenance"] = {**proof, **changes}
+            self.assert_unknown(req)
+        req["inventory"]["maven_provenance"] = proof
+        req["inventory"]["bundle_symbolic_name"] = CATALINA
+        self.assert_unknown(req)
+
+    def test_legacy_digest_is_pinned_to_the_exact_coordinate(self):
+        req = json.loads((ROOT / "examples/CVE-2025-24813.json").read_bytes())
+        proof = req["inventory"]["maven_provenance"]
+        for digest in ("a" * 64, "d4d8097f87a4dcd7560e01c1878b8a0aaf365b2c9477674a10f62df83f1aa53e"):
+            proof.update(loaded_sha256=digest, published_sha256=digest.upper())
+            self.assert_unknown(req)
+        proof["coordinate"] = "org.apache.tomcat.embed:tomcat-embed-core:8.5.100"
+        row = self.result(req)
+        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", None))
+
+    def test_default_servlet_excluded_versions_and_wrong_classes(self):
+        for version in ("8.5.0", "8.5.2", "9.0.1", "9.0.2", "9.0.0.M1", "9.0.103", "10.0.27", "10.1.38",
+                        "11.0.19", "9.0.125", "10.1.63", "11.0.30"):
+            req = inventory(version, class_name="org.apache.catalina.servlets.DefaultServlet")
+            req["advisory"] = "CVE-2025-24813"
+            self.assert_unknown(req)
+        req = inventory("11.0.3")
+        req["advisory"] = "CVE-2025-24813"
+        self.assert_unknown(req)
+        req["inventory"]["class_name"] = "org.apache.catalina.servlets.DefaultServlet"
+        req["inventory"]["origin"] = "distribution"
+        self.assert_unknown(req)
 
     def test_malformed_input_returns_one_json_error(self):
         for raw in (b"not json", b"\xff", b"{}", b"[]", b'{"advisory":null,"advisory":"CVE-2026-103119"}',
