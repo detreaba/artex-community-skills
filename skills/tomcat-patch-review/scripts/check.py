@@ -1,5 +1,6 @@
 """Review the Catalina implementation loaded by one Tomcat instance using saved evidence."""
 import json
+from pathlib import Path
 import re
 import sys
 from typing import NamedTuple
@@ -77,7 +78,14 @@ def artifact_matches(record, profile, version, line, patch, provenance):
     # These releases either omit the header or share a generic value across different JARs.
     if line == "8.5" or (line == "9.0" and patch <= 22) or version in ("9.0.91", "10.1.26"):
         legacy_symbol = f"TOMCAT_9_0_{patch}" if line == "9.0" and 10 <= patch <= 22 else None
-        return bool(candidates) and provenance is not None and symbol == legacy_symbol
+        if not candidates or provenance is None or symbol != legacy_symbol:
+            return False
+        entry = f"{provenance['loaded_sha256'].lower()}  {provenance['coordinate']}"
+        try:
+            with Path(__file__).with_name("legacy-artifacts.sha256").open(encoding="ascii") as pins:
+                return any(line.rstrip() == entry for line in pins)
+        except (OSError, UnicodeError):
+            return False
     return symbol in candidates
 
 
@@ -95,7 +103,7 @@ def evidence_problem(record, scope, ref, profile, provenance):
         return "This version is outside the published stable releases covered for this advisory."
     line, patch = RELEASES[version]
     if not artifact_matches(record, profile, version, line, patch, provenance):
-        return "Identify the defining upstream artifact. Older or generic manifests need matching Maven provenance."
+        return "Identify the defining upstream artifact. A missing or shared bundle name needs the exact published legacy JAR digest and Maven coordinate."
     return None
 
 

@@ -124,6 +124,16 @@ class TomcatTests(unittest.TestCase):
         req["inventory"]["bundle_symbolic_name"] = CATALINA
         self.assert_unknown(req)
 
+    def test_legacy_digest_is_pinned_to_the_exact_coordinate(self):
+        req = json.loads((ROOT / "examples/CVE-2025-24813.json").read_bytes())
+        proof = req["inventory"]["maven_provenance"]
+        for digest in ("a" * 64, "d4d8097f87a4dcd7560e01c1878b8a0aaf365b2c9477674a10f62df83f1aa53e"):
+            proof.update(loaded_sha256=digest, published_sha256=digest.upper())
+            self.assert_unknown(req)
+        proof["coordinate"] = "org.apache.tomcat.embed:tomcat-embed-core:8.5.100"
+        row = self.result(req)
+        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", None))
+
     def test_default_servlet_excluded_versions_and_wrong_classes(self):
         for version in ("8.5.0", "8.5.2", "9.0.1", "9.0.2", "9.0.0.M1", "9.0.103", "10.0.27", "10.1.38",
                         "11.0.19", "9.0.125", "10.1.63", "11.0.30"):
