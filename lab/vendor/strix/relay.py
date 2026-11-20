@@ -44,17 +44,19 @@ def main():
                     break
                 head += ch
             clen = 0
+            sep = head.find(b"\r\n\r\n")
+            rest = head[sep + 4:] if sep >= 0 else b""
             for line in head.split(b"\r\n"):
                 if line.lower().startswith(b"content-length:"):
                     clen = int(line.split(b":", 1)[1])
-            body = b""
+            body = rest
             while len(body) < clen:
                 ch = c.recv(65536)
                 if not ch:
                     break
                 body += ch
             bsock = socket.create_connection((bh, int(bp)), timeout=40)
-            bsock.sendall(head)
+            bsock.sendall(head[:sep + 4] if sep >= 0 else head)
             for i in range(0, len(body), a.block):
                 bsock.sendall(body[i:i + a.block])
                 if a.gap:
