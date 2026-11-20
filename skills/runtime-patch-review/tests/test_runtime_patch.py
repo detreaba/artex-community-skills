@@ -327,8 +327,7 @@ class RuntimePatchTests(unittest.TestCase):
                 (PHP_SHUTDOWN_BACKTRACE, "8.6.0", fix, "8.6.0"), (PHP_SHUTDOWN_BACKTRACE, "8.7.0", unk, None),
                 (PHP_SESSION_SHUTDOWN, "8.4.28", fix, "8.4.28"), (PHP_SESSION_SHUTDOWN, "8.5.13", fix, "8.5.13"),
                 (PHP_SHUTDOWN_BACKTRACE, "8.5.0", aff, "8.5.13"),
-                # Codex, #43: an exclusion needs a release in PHP's release index. 6.x, 7.5, 8.1.35 and the index's
-                # gaps were never published; later patches on a supported branch stay covered.
+                # Index gaps include the withdrawn 5.2.7 release. Later patches on supported branches stay covered.
                 (PHP_SESSION_SHUTDOWN, "6.0.0", unk, None), (PHP_SESSION_SHUTDOWN, "7.5.0", unk, None),
                 (PHP_SESSION_SHUTDOWN, "8.1.35", unk, None), (PHP_SESSION_SHUTDOWN, "5.2.7", unk, None),
                 (PHP_SESSION_SHUTDOWN, "7.4.17", unk, None), (PHP_SESSION_SHUTDOWN, "8.0.4", unk, None),
@@ -387,6 +386,31 @@ class RuntimePatchTests(unittest.TestCase):
         # Configuration is reported beside an exclusion, as framework-patch-review does.
         row = self.php_cli(PHP_MAGIC_BACKTRACE, "8.4.27", config(**{both[0]: True, both[1]: True}))
         self.assertEqual((row["patch_status"], row["applicability"]), ("outside_affected_range", "conditions_present"))
+
+    def test_unknown_release_line_and_vendor_exclusion_have_distinct_reasons(self):
+        unknown = self.php_cli(PHP_SESSION_FILES, "8.1.34")
+        self.assertEqual(unknown["patch_status"], "unknown")
+        self.assertIn("cannot establish a patch verdict", unknown["patch_reason"])
+        excluded = self.php_cli(PHP_SESSION_SHUTDOWN, "8.1.34")
+        self.assertEqual((excluded["patch_status"], excluded["patch_reason"]),
+                         ("outside_affected_range", VENDOR_EXCLUSIONS[PHP_SESSION_SHUTDOWN]))
+
+    def test_condition_schema_is_checked_on_unbound_evidence(self):
+        data = inventory(PHP_SESSION_SHUTDOWN, "8.5.12")
+        for changes, config_changes in (({"serving_process_verified": False}, {}), ({"ref": ""}, {}),
+                                       ({"runtime": "node"}, {}), ({}, {"ref": ""}), ({}, {"build": "other"})):
+            context = {**data, "inventory": {**data["inventory"], **changes}}
+            for malformed in ({"wrong_flag": True}, {"worker_reused_across_requests": "false"}, []):
+                req = {**context, "applicability": {**config(), **config_changes, "conditions": malformed}}
+                result = subprocess.run([sys.executable, "-ISB", str(CHECKER)], input=json.dumps(req).encode(),
+                                        capture_output=True, timeout=5)
+                with self.subTest(changes=changes, config=config_changes, conditions=malformed):
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(json.loads(result.stdout)["error"], "invalid_input")
+                    self.assertNotIn("patch_status", json.loads(result.stdout))
+            valid = review({**context, "applicability": {**config(worker_reused_across_requests=False), **config_changes}})
+            self.assertEqual(valid["applicability"], "unknown")
+            self.assertIsNone(valid["evidence_refs"]["configuration"])
 
     def test_isolated_cli_and_malformed_inputs(self):
         for input_bytes, expected in [

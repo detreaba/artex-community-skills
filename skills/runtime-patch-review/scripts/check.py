@@ -7,7 +7,7 @@ import sys
 PHP_OCT_21_FIXES = ((8, 2, 35), (8, 3, 36), (8, 4, 27), (8, 5, 12))
 PHP_NOV_19_FIXES = ((8, 2, 36), (8, 3, 37), (8, 4, 28), (8, 5, 13), (8, 6, 0))
 PHP_860_CHANGELOG = "https://www.php.net/ChangeLog-8.php#8.6.0"
-# Published PHP releases per branch below 8.5, as (first patch, last patch, unpublished patch numbers in between).
+# PHP release-index entries below 8.5, as (first patch, last patch, intervening numbers omitted by the index).
 # Source: php.net release index (https://www.php.net/releases/index.php?json=1&max=1000&version=N for N = 4, 5, 7, 8),
 # read 2026-11-20. It returns "Unknown version" for the gaps, for 8.1.35 and for every 6.x and 7.5 number.
 # A vendor exclusion applies only to these releases, or to a later patch on a still-supported branch.
@@ -185,17 +185,17 @@ def _patch_status(profile, inventory):
             return "unknown", ("PHP's release index lists no such release, so the vendor's exclusion cannot be applied. "
                                "Reconcile the inventory with the serving binary."), None
         return "outside_affected_range", profile["outside_reason"], None
-    return "unknown", "The requested branch is outside the ranges reviewed for this advisory.", None
+    return "unknown", "This checker cannot establish a patch verdict for this release line. Consult the publisher's advisory and the build's patch record.", None
 
 
 def _conditions(profile, config, scope):
-    ref = _alias(config.get("ref"))
-    if not ref or any(config.get(k) != v for k, v in scope.items()):
-        return "unknown", None
     fields = profile["conditions"]
     flags = _fields(config.get("conditions", {}), fields)
     if any(v is not None and type(v) is not bool for v in flags.values()):
         raise ValueError("Configuration values must be boolean or null.")
+    ref = _alias(config.get("ref"))
+    if scope is None or not ref or any(config.get(k) != v for k, v in scope.items()):
+        return "unknown", None
     if not fields:
         # all() over no conditions is true. A profile without documented conditions gives no
         # configuration verdict, even for a scoped empty record (as framework-patch-review does in #2).
@@ -219,11 +219,12 @@ def review(request):
     scope = {key: _alias(inventory.get(key)) for key in ("asset", "build")}
     ref = _alias(inventory.get("ref"))
     patch, detail, fixed = "unknown", "A scoped inventory reference from the deployed serving process is required.", None
-    applicability, config_ref = "unknown", None
-    if all(scope.values()) and ref and inventory.get("serving_process_verified") is True:
-        if inventory.get("runtime") == profile["runtime"]:
+    verified = all(scope.values()) and bool(ref) and inventory.get("serving_process_verified") is True
+    runtime_matches = inventory.get("runtime") == profile["runtime"]
+    applicability, config_ref = _conditions(profile, config, scope if verified and runtime_matches else None)
+    if verified:
+        if runtime_matches:
             patch, detail, fixed = _patch_status(profile, inventory)
-            applicability, config_ref = _conditions(profile, config, scope)
         else:
             detail = "The inventory does not establish the runtime named by the advisory."
     return {
