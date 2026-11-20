@@ -42,3 +42,8 @@ captured directory path.
 - Missing or unresolvable image tag => card status `blocked — no image`, not a
   downgrade to banner-suspect.
 - Java4Shell is x86-64 only (AVX-512); an ARM runner result is meaningless.
+
+## Pair change 2026-11-20 06:20 UTC
+php2shell now points at php:8.5.12 / 8.5.13 (payload build era; Apache variant in compose.apache.yml).
+The 8.3.36/8.3.37 pair is retained as php2shell-83x for range checks.
+After any image change, addresses in profile-deltas.tsv MUST be re-measured (base and offsets are per-build).

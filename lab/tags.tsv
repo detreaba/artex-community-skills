@@ -1,5 +1,6 @@
 slug	status	vulnerable_tag	patched_tag
-php2shell	ready	php:8.3.36	php:8.3.37
+php2shell	ready	php:8.5.12	php:8.5.13
+php2shell-83x	candidate	php:8.3.36	php:8.3.37
 node2shell	ready	node:24.22.0	node:24.22.1
 nginx2shell	ready	nginx:1.31.8	nginx:1.31.9
 ruby-onigmo	candidate	ruby:3.3.12	ruby:3.3.13
