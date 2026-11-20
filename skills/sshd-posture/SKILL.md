@@ -79,7 +79,14 @@ directions independently, so:
 - a category the observation did not fully capture (no KEXINIT read, or a
   direction's name-list missing) → `unknown` — **unless** a captured direction
   already shows a forbidden algorithm or is missing a required one, which still
-  decides `gap`.
+  decides `gap`;
+- an **empty** captured name-list (length 0 on the wire) is a real empty offer,
+  distinct from an omitted field: it offers nothing, so it fails a `required`
+  check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction
+  reads `unknown`;
+- a captured name-list or a policy list carrying a **non-string element** is
+  malformed → `unknown` (a forbidden algorithm positively seen among the valid
+  names still decides `gap`).
 
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.

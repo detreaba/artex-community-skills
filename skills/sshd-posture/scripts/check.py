@@ -37,7 +37,9 @@ def _policy_set(policy, kind, category):
         return set(), False
     if not isinstance(vals, list):
         return set(), True
-    return set(str(v) for v in vals), False
+    if not all(isinstance(v, str) for v in vals):
+        return set(), True  # a non-string element -> unusable policy, read unknown
+    return set(vals), False
 
 
 def _category_verdict(record, category, forbidden, required):
@@ -53,18 +55,28 @@ def _category_verdict(record, category, forbidden, required):
         return "unknown"
     per_direction = []
     incomplete = False
+    malformed = False
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
             incomplete = True
             continue
-        per_direction.append(set(str(v) for v in vals))
+        if not all(isinstance(v, str) for v in vals):
+            malformed = True  # a captured name-list carried a non-string element
+            per_direction.append(set(v for v in vals if isinstance(v, str)))
+            continue
+        per_direction.append(set(vals))
     if not per_direction:
         return "unknown"  # the category's name-list(s) were not captured at all
     union = set().union(*per_direction)
-    # forbidden is a positive detection: a match in any captured direction is a gap.
+    # forbidden is a positive detection: a match in any captured direction is a gap,
+    # even when another direction was missing or malformed.
     if union & forbidden:
         return "gap"
+    # a captured name-list carried a non-string element -> malformed observation;
+    # cannot judge required or confirm a clean pass on it.
+    if malformed:
+        return "unknown"
     # required is per direction: a captured direction offering none of the required
     # set is a definite gap, even when the opposite direction was not captured.
     if required and any(not (direction & required) for direction in per_direction):

@@ -292,6 +292,58 @@ class VerdictRules(unittest.TestCase):
         out = check.evaluate(rec)
         self.assertEqual(out["per_category"]["cipher"], "unknown")
 
+    def test_empty_mac_direction_is_gap_but_omitted_is_unknown(self):
+        # F-SSH-14: a captured empty mac_s2c ([]) offers none of the required set
+        # -> gap; the SAME record with mac_s2c OMITTED was not captured -> unknown.
+        # Empty (captured, length 0 on the wire) and omitted (not captured) are
+        # distinct inputs with distinct verdicts.
+        empty = check.evaluate(self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                                         mac_s2c=[]))
+        self.assertEqual(empty["per_category"]["mac"], "gap")
+        self.assertEqual(empty["overall"], "gap")
+        rec = self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"])
+        rec.pop("mac_s2c")
+        omitted = check.evaluate(rec)
+        self.assertEqual(omitted["per_category"]["mac"], "unknown")
+        self.assertEqual(omitted["overall"], "unknown")
+
+    def test_empty_direction_under_forbidden_only_passes(self):
+        # An empty captured direction offers nothing forbidden -> pass under a
+        # forbidden-only policy (the dual of empty-under-required -> gap). Pinned so
+        # empty-offer semantics stay consistent across policy kinds: an empty list
+        # is a real empty set, not an unreliable read.
+        rec = {"kexinit_read": True, "protocol": "2.0",
+               "policy": {"forbidden": {"hostkey": ["ssh-dss", "ssh-rsa"]}},
+               "server_host_key_algorithms": [],
+               "kex_algorithms": ["curve25519-sha256"],
+               "encryption_c2s": ["chacha20-poly1305@openssh.com"],
+               "encryption_s2c": ["chacha20-poly1305@openssh.com"],
+               "mac_c2s": ["hmac-sha2-256-etm@openssh.com"],
+               "mac_s2c": ["hmac-sha2-256-etm@openssh.com"]}
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["hostkey"], "pass")
+
+    def test_non_string_namelist_element_is_unknown(self):
+        # A captured name-list carrying a non-string element is malformed -> the
+        # category reads unknown rather than silently coercing to a clean pass.
+        out = check.evaluate(self._rec(encryption_s2c=[["3des-cbc"]]))
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
+    def test_non_string_namelist_element_still_gaps_on_real_forbidden(self):
+        # A real forbidden name among valid strings still gaps even when the
+        # opposite direction's list is malformed (forbidden is a positive detection).
+        out = check.evaluate(self._rec(encryption_c2s=["3des-cbc"],
+                                       encryption_s2c=[["x"]]))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_non_string_policy_element_is_unknown(self):
+        # A forbidden policy list with a non-string element is unusable -> unknown,
+        # never a false pass even when the offer contains the intended name.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": [["3des-cbc"]]}}
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")
