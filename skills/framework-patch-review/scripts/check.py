@@ -100,6 +100,16 @@ ADVISORIES = {
                     "https://github.com/livewire/livewire/releases/tag/v3.6.4",
                     "https://github.com/advisories/GHSA-29cq-5w36-x7w3"],
     },
+    "CVE-2026-9082": {
+        "ecosystem": "composer", "package": "drupal/core", "published": "2026-05-20", "reviewed": "2026-11-20",
+        "published_core_only": True,
+        "windows": (((8, 9, 0), None, (10, 0, 0)), ((10, 0, 0), (10, 4, 10), (10, 5, 0)),
+                    ((10, 5, 0), (10, 5, 10), (10, 6, 0)), ((10, 6, 0), (10, 6, 9), (10, 7, 0)),
+                    ((11, 0, 0), (11, 1, 10), (11, 2, 0)), ((11, 2, 0), (11, 2, 12), (11, 3, 0)),
+                    ((11, 3, 0), (11, 3, 10), (11, 4, 0))),
+        "conditions": ("serving_database_uses_postgresql",),
+        "sources": ["https://www.drupal.org/sa-core-2026-004", "https://www.cve.org/CVERecord?id=CVE-2026-9082"],
+    },
     "CVE-2026-132165": {
         **DRUPAL_NOV_18,
         "sources": ["https://www.drupal.org/sa-core-2026-017"],
@@ -177,13 +187,23 @@ def release(value, ecosystem):
 
 
 def classify(profile, version):
+    if profile.get("published_core_only"):
+        tag = ".".join(map(str, version))
+        try:
+            releases = Path(__file__).with_name("drupal-releases.txt").read_text(encoding="ascii").splitlines()
+        except (OSError, UnicodeError):
+            return "unknown", None, "The bundled Drupal release list is unavailable."
+        if tag not in releases:
+            return "unknown", None, "Verify the release against the publisher's Drupal core catalog."
     for start, fixed, end in profile["windows"]:
         if start <= version < end:
+            if fixed is None:
+                return "affected_version", None, "Drupal offers best-effort manual patches for these legacy branches. This major has no packaged fix."
             cutoff = ".".join(map(str, fixed))
             if version < fixed:
                 return "affected_version", cutoff, "The release falls in the vendor's affected range."
             return "vendor_fix_present", cutoff, "The identified upstream release includes the named fix."
-    if any(start <= version < end for start, end in profile.get("outside", ())):
+    if profile.get("published_core_only") or any(start <= version < end for start, end in profile.get("outside", ())):
         return "outside_affected_range", None, "This upstream release falls outside the documented affected range."
     return "unknown", None, "This release line is outside the branches reviewed by this checker."
 
@@ -324,6 +344,8 @@ def review(request):
     if advisory in RSC_ADVISORIES:
         limitations.append("The server resolution and installed-content match are operator attestations. "
                            "A framework's bundled copy and other React advisories require their own review.")
+    if advisory == "CVE-2026-9082":
+        limitations.append("The PostgreSQL condition concerns this Drupal core advisory. Review the separate Symfony and Twig dependency updates for every database.")
     if profile.get("positive_evidence_only"):
         limitations.append("Only a confirmed compromise of the active key establishes this condition. A missing incident record or key rotation alone leaves it unknown.")
     return {

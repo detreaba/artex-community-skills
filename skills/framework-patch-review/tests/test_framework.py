@@ -14,6 +14,7 @@ SYMFONY = "CVE-2026-118514"
 DJANGO_CACHE = "CVE-2026-113593"
 DJANGO_ADMIN = "CVE-2026-113733"
 DRUPAL = "CVE-2026-132165"
+DRUPAL_MAY = "CVE-2026-9082"
 DRUPAL_018 = "CVE-2026-132166"
 LIVEWIRE = "CVE-2025-54068"
 CRAFT_PHP = "CVE-2024-56145"
@@ -30,6 +31,7 @@ PACKAGES = {
     DJANGO_CACHE: ("pypi", "Django"),
     DJANGO_ADMIN: ("pypi", "Django"),
     DRUPAL: ("composer", "drupal/core"),
+    DRUPAL_MAY: ("composer", "drupal/core"),
     DRUPAL_018: ("composer", "drupal/core"),
 }
 
@@ -60,6 +62,41 @@ class FrameworkTests(unittest.TestCase):
         code, result = self.run_cli(json.dumps(data).encode("utf-8"))
         self.assertEqual(code, 0, result)
         return result
+
+    def test_drupal_may_six_fix_lines_and_legacy_manual_patches(self):
+        for first in ("10.4.10", "10.5.10", "10.6.9", "11.1.10", "11.2.12", "11.3.10"):
+            branch, patch = first.rsplit(".", 1)
+            for v, status in ((f"{branch}.{int(patch) - 1}", "affected_version"), (first, "vendor_fix_present")):
+                with self.subTest(version=v):
+                    row = self.check(deployment(DRUPAL_MAY, v))
+                    self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (status, first))
+        for v, status, fix in (("8.8.0", "outside_affected_range", None), ("8.9.0", "affected_version", None),
+                               ("9.5.11", "affected_version", None), ("10.0.0", "affected_version", "10.4.10"),
+                               ("11.0.0", "affected_version", "11.1.10"), ("11.4.0", "outside_affected_range", None),
+                               ("10.5.999", "unknown", None), ("11.3.0-rc1", "unknown", None)):
+            with self.subTest(version=v):
+                row = self.check(deployment(DRUPAL_MAY, v))
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (status, fix))
+        self.assertEqual(self.check(deployment(DRUPAL_MAY, "9.5.11", origin="custom"))["patch_status"], "unknown")
+
+    def test_drupal_may_serving_evidence_and_database_scope(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-9082.json").read_bytes())
+        cfg = sample["applicability"]
+        for pg, condition in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+            cfg["conditions"]["serving_database_uses_postgresql"] = pg
+            row = self.check(sample)
+            self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", condition))
+            self.assertTrue(any("Twig" in note for note in row["limitations"]))
+        cfg["conditions"]["serving_database_uses_postgresql"] = False
+        cfg["build"] = "other"
+        self.assertEqual(self.check(sample)["applicability"], "unknown")
+        sample["inventory"]["serving_core_version"] = "10.5.10"
+        row = self.check(sample)
+        self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
+        self.assertEqual(row["version_evidence"], {"composer": "10.5.9", "serving_core": "10.5.10"})
+        self.assertIn("Composer package falls in the affected range", row["patch_reason"])
+        sample["inventory"]["version"] = "10.5.999"
+        self.assertNotIn("falls in the affected range", self.check(sample)["patch_reason"])
 
     def test_first_fixed_release_on_every_reviewed_branch(self):
         # Expected cutoffs are transcribed from the respective maintainers' release notices.
