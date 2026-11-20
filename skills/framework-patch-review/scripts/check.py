@@ -15,6 +15,8 @@ DJANGO_CACHE_WINDOWS = (
 DJANGO_BULLETIN = "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/"
 NEXT_ADVISORIES = "https://github.com/vercel/next.js/security/advisories/"
 RSC = "CVE-2025-55182"
+RSC_OCTOBER = "CVE-2026-126187"
+RSC_ADVISORIES = (RSC, RSC_OCTOBER)
 RSC_PACKAGES = ("react-server-dom-parcel", "react-server-dom-turbopack", "react-server-dom-webpack")
 CRAFT_ADVISORIES = "https://github.com/craftcms/cms/security/advisories/"
 CRAFT_PACKAGE = {"ecosystem": "composer", "package": "craftcms/cms", "reviewed": "2026-11-20"}
@@ -56,6 +58,14 @@ ADVISORIES = {
         "conditions": ("server_supports_react_server_components",),
         "sources": ["https://react.dev/blog/2025/12/03/critical-security-vulnerability-in-react-server-components",
                     "https://github.com/react/react/security/advisories/GHSA-fv66-9v8q-g76r"],
+    },
+    RSC_OCTOBER: {
+        "ecosystem": "npm", "package": None, "published": "2026-10-14", "reviewed": "2026-11-20",
+        "windows": (((19, 0, 0), (19, 0, 9), (19, 1, 0)), ((19, 1, 0), (19, 1, 10), (19, 2, 0)),
+                    ((19, 2, 0), (19, 2, 9), (19, 3, 0)), ((19, 3, 0), (19, 3, 1), (19, 4, 0))),
+        "conditions": ("server_supports_react_server_components", "publisher_response_condition_present"),
+        "sources": ["https://github.com/react/react/security/advisories/GHSA-xqc2-xf4c-x3h3",
+                    "https://www.cve.org/CVERecord?id=CVE-2026-126187"],
     },
     "CVE-2024-56145": {
         **CRAFT_PACKAGE, "published": "2024-12-18",
@@ -233,7 +243,7 @@ def rsc_patch(profile, inventory, serving, version):
             matched = any(line.rstrip("\n") == entry for line in releases)
     except (OSError, UnicodeError):
         matched = False
-    if not matched:
+    if not matched or not any(start <= version < end for start, _, end in profile["windows"]):
         return "unknown", None, "The package, version and archive integrity do not match a reviewed npm release."
     return classify(profile, version)
 
@@ -247,7 +257,7 @@ def review(request):
     inventory_fields = ("asset", "build", "ref", "ecosystem", "package", "version", "origin", "deployment_verified")
     if profile["package"] == "drupal/core":
         inventory_fields += ("serving_core_version",)
-    if advisory == RSC:
+    if advisory in RSC_ADVISORIES:
         inventory_fields += ("serving_package",)
     inventory = check_fields(request.get("inventory", {}), inventory_fields)
     config = check_fields(request.get("applicability", {}), ("asset", "build", "ref", "conditions"))
@@ -257,7 +267,7 @@ def review(request):
     if isinstance(package, str) and profile["ecosystem"] == "pypi":
         package = package.lower()
     expected_package = profile["package"]
-    if advisory == RSC:
+    if advisory in RSC_ADVISORIES:
         expected_package = package if package in RSC_PACKAGES else None
         serving_package = check_fields(inventory.get("serving_package", {}),
                                        ("asset", "build", "ref", "package", "version", "source", "contents_verified", "integrity"))
@@ -276,7 +286,7 @@ def review(request):
                                                      "serving_core": ".".join(map(str, serving)) if serving else None}}
         if inventory.get("origin") != "upstream":
             detail = "The supplied package origin requires separate vendor or backport evidence."
-        elif advisory == RSC:
+        elif advisory in RSC_ADVISORIES:
             status, fixed, detail = rsc_patch(profile, inventory, serving_package, parsed)
         elif version_evidence:
             observations = (("Composer package", parsed), ("serving core", serving))
@@ -302,7 +312,7 @@ def review(request):
         if version_evidence:
             parsed = None
     refs = {"inventory": inv_ref, "configuration": config_ref}
-    if advisory == RSC:
+    if advisory in RSC_ADVISORIES:
         same_scope = all(scope.values()) and all(serving_package.get(k) == v for k, v in scope.items())
         refs["serving_package"] = alias(serving_package.get("ref")) if same_scope else None
         if status == "unknown":
@@ -311,7 +321,7 @@ def review(request):
                    "Configuration evidence describes features. Actual disclosure or access requires separate evidence."]
     if profile.get("additional_configuration_undisclosed"):
         limitations.append("Livewire also requires a configuration the publisher did not identify. A mounted component alone leaves applicability unknown.")
-    if advisory == RSC:
+    if advisory in RSC_ADVISORIES:
         limitations.append("The server resolution and installed-content match are operator attestations. "
                            "A framework's bundled copy and other React advisories require their own review.")
     if profile.get("positive_evidence_only"):
