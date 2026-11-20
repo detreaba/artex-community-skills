@@ -30,8 +30,7 @@ import sys
 import time
 
 TIMEOUT = 5
-MAX_BANNER_BYTES = 8192
-MAX_BANNER_LINES = 64
+MAX_IDENT_LINE = 4096  # per-line cap on pre-banner/identification lines (memory bound)
 MAX_PACKET = 35000  # RFC 4253 section 6.1 maximum uncompressed packet size
 SSH_MSG_KEXINIT = 20
 CLIENT_IDENT = b"SSH-2.0-artex-sshd-posture-observer\r\n"
@@ -82,27 +81,37 @@ def _validate(req):
     return req, None
 
 
-def _read_identification(sock):
-    """Read identification lines until an 'SSH-' line (RFC 4253 section 4.2).
-
-    Returns (banner_bytes, leftover_bytes) or (None, b"") if no SSH- line
-    arrives within the byte/line bounds. ``leftover`` is whatever followed the
-    identification line's newline (often the start of the binary KEXINIT).
+def _read_identification(sock, deadline):
+    """Read identification lines until an 'SSH-' line (RFC 4253 section 4.2),
+    discarding any pre-banner lines. Bounded by the observation deadline and a
+    per-line length cap (memory), not a line count or total size -- consistent
+    with the KEXINIT read. Returns (banner_bytes, leftover_bytes), where
+    ``leftover`` is whatever followed the identification line's newline (often
+    the start of the binary KEXINIT), or (None, b"") on the deadline, EOF, or an
+    over-long line.
     """
-    buf = b""
-    while len(buf) < MAX_BANNER_BYTES:
-        chunk = sock.recv(256)
+    buf = bytearray()
+    while True:
+        while b"\n" in buf:
+            idx = buf.index(b"\n")
+            raw = bytes(buf[:idx]).rstrip(b"\r")
+            del buf[:idx + 1]
+            if raw.startswith(b"SSH-"):
+                return raw, bytes(buf)
+            # a pre-banner line: discard it and keep scanning
+        if len(buf) > MAX_IDENT_LINE:
+            return None, b""  # a single line longer than the per-line cap
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, b""
+        try:
+            sock.settimeout(remaining)
+            chunk = sock.recv(256)
+        except (socket.timeout, TimeoutError, OSError):
+            return None, b""
         if not chunk:
-            break
-        buf += chunk
-        if b"\n" in buf:
-            lines = buf.split(b"\n")
-            for i, raw in enumerate(lines[:-1]):
-                if raw.rstrip(b"\r").startswith(b"SSH-"):
-                    return raw.rstrip(b"\r"), b"\n".join(lines[i + 1:])
-            if len(lines) - 1 >= MAX_BANNER_LINES:
-                break
-    return None, b""
+            return None, b""
+        buf.extend(chunk)
 
 
 def _client_kexinit():
@@ -165,9 +174,9 @@ def observe(req):
         sock.settimeout(TIMEOUT)
         record["connections_made"] = 1
 
-        banner, leftover = _read_identification(sock)
+        banner, leftover = _read_identification(sock, time.monotonic() + TIMEOUT)
         if banner is None:
-            record["notes"].append("no SSH identification string within bounds")
+            record["notes"].append("no SSH identification string within the observation window")
             return record
         record["banner"] = banner.decode("ascii", "replace")
         parts = record["banner"].split("-", 2)
