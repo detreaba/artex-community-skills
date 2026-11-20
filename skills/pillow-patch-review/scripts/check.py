@@ -1,4 +1,4 @@
-"""Review the ImageCms extension loaded by a single Pillow image worker."""
+"""Match a worker's ImageCms wrapper and extension to one verified Pillow wheel."""
 import base64
 import json
 import re
@@ -32,7 +32,14 @@ def alias(value):
     return value if isinstance(value, str) and ALIAS.fullmatch(value) else None
 
 
-def assess(inventory, wheel, native, scope, refs):
+def matches_record(digest, record_hash):
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        return False
+    encoded = base64.urlsafe_b64encode(bytes.fromhex(digest)).decode("ascii").rstrip("=")
+    return record_hash == "sha256=" + encoded
+
+
+def assess(inventory, wheel, native, wrapper, scope, refs):
     if not all(scope.values()) or not refs["inventory"] or inventory.get("deployment_verified") is not True:
         return "unknown", "A referenced inventory tied to one running worker is required."
     if inventory.get("origin") != "upstream" or not refs["wheel"] or wheel.get("pypi_verified") is not True:
@@ -55,32 +62,46 @@ def assess(inventory, wheel, native, scope, refs):
     member, digest = wheel.get("member"), native.get("sha256")
     if not isinstance(member, str) or MEMBER.fullmatch(member) is None:
         return "unknown", "Use the native PIL/_imagingcms member from the original wheel's RECORD."
-    if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
-        return "unknown", "A SHA-256 digest of the loaded native extension is required."
-    record_hash = "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(digest)).decode("ascii").rstrip("=")
-    if wheel.get("record_hash") != record_hash:
+    if not matches_record(digest, wheel.get("record_hash")):
         return "unknown", "The loaded extension digest and the wheel member's RECORD hash must agree."
+    if not refs["wrapper"] or any(wrapper.get(key) != scope[key] for key in SCOPE):
+        return "unknown", "An import record for PIL.ImageCms must identify the same asset, build and worker."
+    directory = alias(native.get("package_dir_ref"))
+    if wrapper.get("module") != "PIL.ImageCms" or not directory or wrapper.get("package_dir_ref") != directory:
+        return "unknown", "Bind the imported Python wrapper and the loaded native module to the same PIL directory."
+    if wrapper.get("binding") == "immutable_image":
+        if binding != "immutable_image":
+            return "unknown", "Verify both imports in the same immutable startup image or supply an import-time wrapper record."
+    elif wrapper.get("binding") != "imported_source":
+        return "unknown", "Identify the wrapper source actually executed by this worker at import time."
+    if not matches_record(wrapper.get("sha256"), wheel.get("wrapper_record_hash")):
+        return "unknown", "The imported wrapper digest must match PIL/ImageCms.py in the same wheel's RECORD."
     if version in AFFECTED:
-        return "affected_version", "The loaded extension matches an upstream Pillow release covered by the advisory."
-    return "vendor_fix_present", "The loaded extension matches a reviewed upstream Pillow release containing the fix."
+        return "affected_version", "The imported wrapper and native extension match an affected upstream Pillow release."
+    return "vendor_fix_present", "Both ImageCms components match a reviewed release containing the public wrapper fix."
 
 
 def review(request):
-    fields(request, ("advisory", "inventory", "wheel", "native"))
+    fields(request, ("advisory", "inventory", "wheel", "native", "wrapper"))
     if request.get("advisory") != ADVISORY:
         raise ValueError("Select the supported advisory.")
     inventory = fields(request.get("inventory", {}), SCOPE + ("ref", "origin", "deployment_verified", "version"))
-    wheel = fields(request.get("wheel", {}), ("ref", "pypi_verified", "name", "version", "member", "record_hash"))
-    native = fields(request.get("native", {}), SCOPE + ("ref", "module", "binding", "immutable_start_verified", "sha256"))
+    wheel = fields(request.get("wheel", {}), ("ref", "pypi_verified", "name", "version", "member", "record_hash",
+                                             "wrapper_record_hash"))
+    module_fields = SCOPE + ("ref", "module", "binding", "sha256", "package_dir_ref")
+    native = fields(request.get("native", {}), module_fields + ("immutable_start_verified",))
+    wrapper = fields(request.get("wrapper", {}), module_fields)
     scope = {key: alias(inventory.get(key)) for key in SCOPE}
-    refs = {"inventory": alias(inventory.get("ref")), "wheel": alias(wheel.get("ref")), "native": alias(native.get("ref"))}
-    status, reason = assess(inventory, wheel, native, scope, refs)
+    refs = {"inventory": alias(inventory.get("ref")), "wheel": alias(wheel.get("ref")),
+            "native": alias(native.get("ref")), "wrapper": alias(wrapper.get("ref"))}
+    status, reason = assess(inventory, wheel, native, wrapper, scope, refs)
     return {
         "advisory": ADVISORY, "scope": scope, "patch_status": status, "patch_reason": reason,
         "version": inventory.get("version") if status != "unknown" else None,
         "first_fixed_release": FIRST_FIX if status != "unknown" else None, "applicability": "unknown",
-        "evidence_refs": refs, "reviewed": "2026-11-19", "sources": list(SOURCES),
-        "limitations": ["The result covers one worker. Application use of the affected operation needs separate evidence."],
+        "evidence_refs": refs, "reviewed": "2026-11-20", "sources": list(SOURCES),
+        "limitations": ["The result covers one worker and the public ImageCms wrapper. "
+                        "Application use and direct calls to the private extension require separate review."],
     }
 
 

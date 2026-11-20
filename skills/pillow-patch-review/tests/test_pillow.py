@@ -16,15 +16,19 @@ def evidence(version):
     scope = {"asset": "training-gallery", "build": "blue", "worker": "node-3-start-21"}
     # All bytes and references in this inventory are synthetic.
     digest = hashlib.sha256(("fixture extension " + version).encode("ascii")).digest()
+    wrapper = hashlib.sha256(("fixture wrapper " + version).encode("ascii")).digest()
     return {
         "advisory": "CVE-2026-59205",
         "inventory": {**scope, "ref": "serving-worker", "deployment_verified": True, "origin": "upstream",
                       "version": version},
         "wheel": {"ref": "upstream-wheel", "pypi_verified": True, "name": "Pillow", "version": version,
                   "member": "PIL/_imagingcms.cp312-win_amd64.pyd",
-                  "record_hash": "sha256=" + base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")},
+                  "record_hash": "sha256=" + base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
+                  "wrapper_record_hash": "sha256=" + base64.urlsafe_b64encode(wrapper).decode("ascii").rstrip("=")},
         "native": {**scope, "ref": "mapped-worker-module", "binding": "mapped_file",
-                   "module": "PIL._imagingcms", "sha256": digest.hex().upper()},
+                   "package_dir_ref": "worker-pil", "module": "PIL._imagingcms", "sha256": digest.hex().upper()},
+        "wrapper": {**scope, "ref": "worker-import", "binding": "imported_source",
+                    "package_dir_ref": "worker-pil", "module": "PIL.ImageCms", "sha256": wrapper.hex().upper()},
     }
 
 
@@ -52,7 +56,7 @@ class PillowTests(unittest.TestCase):
             with self.subTest(version=version):
                 row = self.verify(evidence(version), "vendor_fix_present")
                 self.assertEqual(row["evidence_refs"], {"inventory": "serving-worker", "wheel": "upstream-wheel",
-                                                        "native": "mapped-worker-module"})
+                                                        "native": "mapped-worker-module", "wrapper": "worker-import"})
                 self.assertEqual(row["scope"]["worker"], "node-3-start-21")
         for version in ("10.4.0", "11.2.0", "12.2.1", "12.3.0rc1", "12.3.0+vendor.1", "13.0.1", "14.0.0"):
             with self.subTest(version=version):
@@ -76,7 +80,7 @@ class PillowTests(unittest.TestCase):
                 data = evidence("12.3.0")
                 data[section][key] = value
                 self.verify(data, "unknown")
-        for section in ("inventory", "wheel", "native"):
+        for section in ("inventory", "wheel", "native", "wrapper"):
             data = evidence("12.2.0")
             del data[section]
             with self.subTest(missing=section):
@@ -85,6 +89,7 @@ class PillowTests(unittest.TestCase):
     def test_immutable_image_requires_confirmed_worker_start(self):
         data = evidence("13.0.0")
         data["native"]["binding"] = "immutable_image"
+        data["wrapper"]["binding"] = "immutable_image"
         for attestation in (None, False, 1, "yes"):
             with self.subTest(attestation=attestation):
                 data["native"]["immutable_start_verified"] = attestation
@@ -93,6 +98,28 @@ class PillowTests(unittest.TestCase):
         self.verify(data, "vendor_fix_present")
         data["native"]["worker"] = "old-instance"
         self.verify(data, "unknown")
+
+    def test_imported_wrapper_must_match_the_same_worker_directory_and_wheel(self):
+        for section, field, value in (
+            ("wrapper", "sha256", evidence("12.2.0")["wrapper"]["sha256"]),
+            ("wrapper", "sha256", "z" * 64), ("wheel", "wrapper_record_hash", None),
+            ("wrapper", "binding", "path_hash"), ("wrapper", "binding", "pyc"),
+            ("wrapper", "binding", "immutable_image"), ("wrapper", "asset", "other"),
+            ("wrapper", "worker", "node-3-start-20"), ("wrapper", "build", "green"),
+            ("wrapper", "ref", ""), ("wrapper", "module", "other.ImageCms"),
+            ("wrapper", "package_dir_ref", "other-pil"), ("native", "package_dir_ref", None),
+        ):
+            with self.subTest(section=section, field=field, value=value):
+                data = evidence("12.3.0")
+                data[section][field] = value
+                self.verify(data, "unknown")
+
+    def test_legacy_native_only_record_remains_readable(self):
+        for version in ("12.2.0", "12.3.0"):
+            data = evidence(version)
+            del data["wheel"]["wrapper_record_hash"], data["native"]["package_dir_ref"], data["wrapper"]
+            row = self.verify(data, "unknown")
+            self.assertIn("import record", row["patch_reason"])
 
     def test_bundled_examples(self):
         for fixture, outcome in (("gap", "affected_version"), ("pass", "vendor_fix_present"), ("unknown", "unknown")):

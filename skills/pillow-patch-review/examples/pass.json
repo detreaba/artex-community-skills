@@ -7,12 +7,19 @@
   "wheel": {
     "ref": "verified-wheel-12.3", "pypi_verified": true, "name": "pillow", "version": "12.3.0",
     "member": "PIL/_imagingcms.cpython-312-x86_64-linux-gnu.so",
-    "record_hash": "sha256=sHV6itdQFfScf1pNk2WryclUnXMnTf40gwbjVlVNgqg"
+    "record_hash": "sha256=sHV6itdQFfScf1pNk2WryclUnXMnTf40gwbjVlVNgqg",
+    "wrapper_record_hash": "sha256=ekHDEqPbJKapIxDOp_TyfADBDN9T5Dkpuh6NQGRUGOQ"
   },
   "native": {
     "asset": "training-images", "build": "release-5", "worker": "worker-1-start-43",
     "ref": "immutable-image-start-43", "module": "PIL._imagingcms", "binding": "immutable_image",
-    "immutable_start_verified": true,
+    "immutable_start_verified": true, "package_dir_ref": "worker-43-pil",
     "sha256": "b0757a8ad75015f49c7f5a4d9365abc9c9549d73274dfe348306e356554d82a8"
+  },
+  "wrapper": {
+    "asset": "training-images", "build": "release-5", "worker": "worker-1-start-43",
+    "ref": "immutable-import-43", "module": "PIL.ImageCms", "binding": "immutable_image",
+    "package_dir_ref": "worker-43-pil",
+    "sha256": "7a41c312a3db24a6a92310cea7f4f27c00c10cdf53e43929ba1e8d40645418e4"
   }
 }
