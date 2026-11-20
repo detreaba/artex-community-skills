@@ -242,6 +242,9 @@ def observe(req):
                             raise ValueError("truncated name-list body")
                         text = payload[off:off + length].decode("ascii", "replace")
                         off += length
+                        # record tokens verbatim (no strip); drop empty comma-fields
+                        # -- a name is non-empty (RFC 4251 Sec. 6). check.py is the
+                        # name-hygiene gate for any other malformed token.
                         record[name] = [x for x in text.split(",") if x] if text else []
                     record["kexinit_read"] = True
                     if skipped:

@@ -480,6 +480,47 @@ class VerdictRules(unittest.TestCase):
         rec["policy"] = {"required": {"cipher": []}}
         self.assertNotIn("cipher", check.evaluate(rec)["per_category"])
 
+    def test_whitespace_padded_token_is_malformed_unknown(self):
+        # F-SSH-18: a captured token with a trailing space is not a well-formed
+        # RFC 4251 name, so it cannot slip the forbidden match by reading as a
+        # distinct algorithm; the list is malformed -> unknown, never a false pass.
+        rec = self._rec(encryption_c2s=["3des-cbc "], encryption_s2c=["3des-cbc "])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_well_formed_forbidden_gaps_despite_padded_sibling(self):
+        # A real forbidden token alongside a padded (malformed) sibling still gaps.
+        rec = self._rec(encryption_c2s=["3des-cbc", "aes128-cbc "],
+                        encryption_s2c=["3des-cbc", "aes128-cbc "])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "gap")
+
+    def test_whitespace_in_policy_token_is_malformed(self):
+        # The dual: a whitespace policy token is not a well-formed name, so the
+        # forbidden list is malformed; with no well-formed forbidden token it
+        # cannot assert a gap, and reads unknown rather than a false pass.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc "]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_malformed_at_sign_token_is_not_a_name(self):
+        # RFC 4251 Sec. 6: the name@domain form has exactly one at-sign with a
+        # non-empty part on each side. "3des-cbc@" (empty domain) and "3des-cbc@a@b"
+        # (two at-signs) are not valid names -> they must not slip a forbidden set.
+        for tok in ("3des-cbc@", "3des-cbc@a@b"):
+            rec = self._rec(encryption_c2s=[tok], encryption_s2c=[tok])
+            rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"]}}
+            self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown",
+                             "token %r should be malformed" % tok)
+
+    def test_vendor_at_sign_name_is_valid(self):
+        # A well-formed name@domain is a VALID (distinct) algorithm: offering
+        # aes256-gcm@openssh.com satisfies a required set naming it, not malformed.
+        rec = self._rec(encryption_c2s=["aes256-gcm@openssh.com"],
+                        encryption_s2c=["aes256-gcm@openssh.com"])
+        rec["policy"] = {"required": {"cipher": ["aes256-gcm@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
+
     def test_absent_policy_category_is_no_constraint(self):
         # Control for F-SSH-16: a category simply ABSENT (not null) is no
         # constraint -- an unrelated offer is not judged against it.
@@ -590,6 +631,30 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(out["overall"], "gap")
         self.assertEqual(out["per_category"]["kex"], "gap")
         self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_padded_token_on_the_wire_fails_closed(self):
+        # observe.py records tokens verbatim (a trailing space is kept); check.py
+        # is the hygiene gate, so a padded forbidden token reads unknown, not pass.
+        packet = build_kexinit(
+            kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+            enc=["3des-cbc "],  # trailing space on the wire
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-PaddedSSH_1.0\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertEqual(rec["encryption_c2s"], ["3des-cbc "])  # recorded verbatim
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_empty_comma_fields_are_dropped_on_the_wire(self):
+        # A name-list body "aes256-gcm@openssh.com,," carries empty comma-fields;
+        # observe.py drops them (a name is non-empty, RFC 4251 Sec. 6) so none reach
+        # check.py -- the empty-token cell cannot diverge from a real observation.
+        packet = build_kexinit(
+            kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+            enc=["aes256-gcm@openssh.com", "", ""],  # trailing empties on the wire
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-EmptySSH_1.0\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertEqual(rec["encryption_c2s"], ["aes256-gcm@openssh.com"])
 
     def test_skips_ignore_and_debug_before_kexinit(self):
         # F-SSH-2: a server may send SSH_MSG_IGNORE / DEBUG before KEXINIT; the

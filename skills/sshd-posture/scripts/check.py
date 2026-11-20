@@ -23,12 +23,32 @@ _FIELDS = {
 }
 
 
+def _is_name(tok):
+    """True if tok is a well-formed SSH algorithm name (RFC 4251 Sec. 6): a
+    non-empty string of printable US-ASCII with no whitespace and no comma, at most
+    64 characters. The local/vendor form ``name@domainname`` has exactly one
+    at-sign with a non-empty part on each side; a name with no at-sign contains no
+    at-sign at all. A token that is padded, over-long, or @-malformed is NOT a valid
+    name -- it must not be exact-matched as if it were a distinct algorithm (which
+    would let it slip a forbidden set)."""
+    if not (isinstance(tok, str) and 1 <= len(tok) <= 64
+            and "," not in tok
+            and all("\x21" <= c <= "\x7e" for c in tok)):
+        return False
+    if "@" in tok:
+        local, _, domain = tok.partition("@")
+        return local != "" and domain != "" and "@" not in domain
+    return True
+
+
 def _policy_set(policy, kind, category):
     """Return (algorithms, malformed): the policy set for a category, and whether
     the policy named this category (or its section) but in an unusable shape -- so
     the category must read unknown rather than silently pass. A category or section
-    that is simply absent is no constraint; one that is present but null, or not a
-    list of strings, is malformed (fail closed)."""
+    that is simply absent is no constraint; one that is present but null, not a
+    list, or carries an element that is not a well-formed name, is malformed (fail
+    closed), though well-formed names in it are kept so a forbidden token still
+    gaps."""
     if kind not in policy:
         return set(), False  # this kind is not constrained
     section = policy[kind]
@@ -39,10 +59,10 @@ def _policy_set(policy, kind, category):
     vals = section[category]
     if not isinstance(vals, list):
         return set(), True   # present but null / not a list -> unusable policy
-    strings = [v for v in vals if isinstance(v, str)]
+    names = [v for v in vals if _is_name(v)]
     # Keep the well-formed names so a forbidden token still gaps even when a
-    # sibling element is non-string; the malformed flag only downgrades a non-gap.
-    return set(strings), len(strings) != len(vals)
+    # sibling element is malformed; the malformed flag only downgrades a non-gap.
+    return set(names), len(names) != len(vals)
 
 
 def _category_verdict(record, category, forbidden, required,
@@ -70,12 +90,12 @@ def _category_verdict(record, category, forbidden, required,
         if not isinstance(vals, list):
             incomplete = True
             continue
-        strings = [v for v in vals if isinstance(v, str)]
-        seen.update(strings)
-        if len(strings) == len(vals):
-            clean_directions.append(set(strings))
+        names = [v for v in vals if _is_name(v)]
+        seen.update(names)
+        if len(names) == len(vals):
+            clean_directions.append(set(names))
         else:
-            malformed = True
+            malformed = True  # a non-string or non-well-formed-name token
     if not seen and not clean_directions and not malformed:
         return "unknown"  # the category's name-list(s) were not captured at all
     # forbidden is a positive detection across every captured direction; a hit is

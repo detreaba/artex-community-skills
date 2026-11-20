@@ -85,9 +85,12 @@ directions independently, so:
   distinct from an omitted field: it offers nothing, so it fails a `required`
   check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction
   reads `unknown`;
-- a captured name-list, or a policy list, carrying a **non-string element** keeps
-  its valid names — a forbidden name among them still decides `gap` — and is
-  otherwise malformed → `unknown`; a policy category or section that is present but
+- a captured name-list, or a policy list, carrying an element that is not a
+  **well-formed name** — a non-string, or a token with whitespace, a control/
+  non-ASCII character, a comma, or over 64 characters (RFC 4251 §6) — keeps its
+  valid names (a forbidden name among them still decides `gap`) and is otherwise
+  malformed → `unknown`, so a padded token like `"3des-cbc "` cannot slip a
+  `forbidden` match by reading as a distinct algorithm; a policy category or section that is present but
   **null** or not a list is unusable → `unknown`; one that is simply absent, or an
   **empty** `forbidden`/`required` list, is no constraint. A malformed or unknown
   policy bit never masks a definite `gap`. The one asymmetry: a partial `required`
