@@ -17,6 +17,7 @@ case "$SLUG" in
   *) echo "add PORTS for $SLUG here (vulnerable patched)" && exit 2 ;;
 esac
 
+exec 9>/tmp/artex-lab.lock; flock -n 9 || { echo "lab busy (another runner holds fixtures); retry in 60s"; exit 75; }
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 EV="$SLUG/evidence/$TS"; mkdir -p "$EV"
 docker compose -f "$SLUG/compose.yml" up -d || { rm -rf "$EV"; exit 3; }
@@ -29,7 +30,7 @@ for p in "${PORTS[@]}"; do   # wait for listeners (slower runtimes like ruby); j
 done
 for i in 0 1; do
   v=$([ "$i" = 0 ] && echo vulnerable || echo patched)
-  bash "$PROBE" "$v" "$SCHEME://127.0.0.1:${PORTS[$i]}" > "$EV/$v.stdout" 2> "$EV/$v.stderr"
+  "$PROBE" "$v" "$SCHEME://127.0.0.1:${PORTS[$i]}" > "$EV/$v.stdout" 2> "$EV/$v.stderr"
   echo "exit=$?" > "$EV/$v.meta"
   cp "$PROBE" "$EV/probe.sh"
 done

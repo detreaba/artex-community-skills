@@ -1,0 +1,2 @@
+RESPONSE status=200 body=b'ERR:Decompression failed'
+# VERDICT: inconclusive no crash on vulnerable half (stream shape)

@@ -1,0 +1,2 @@
+RESPONSE status=200 body=b'ERR:Decompression failed'
+# VERDICT: not-vulnerable clean response on patched half
