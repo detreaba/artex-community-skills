@@ -386,6 +386,19 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(rec["software"], "Guarded_1.0")
         self.assertTrue(rec["kexinit_read"])
 
+    def test_lf_only_identification_terminator(self):
+        # F-SSH-8: RFC 4253 4.2 -- an identification string with no trailing CR
+        # ("SSH-2.0-...\n") MUST be accepted; a 0x0d inside the following KEXINIT
+        # must not confuse the line split.
+        kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\n", kexinit, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(rec["software"], "OpenSSH_9.6")
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
     def test_many_pre_banner_lines_then_identification(self):
         # F-SSH-7: 80 valid CRLF pre-banner lines (~9.9 KB, over the old 64-line /
         # 8 KiB cap), then the SSH- identification and a KEXINIT on the same send ->
