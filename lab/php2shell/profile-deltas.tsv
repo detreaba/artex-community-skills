@@ -2,3 +2,5 @@ build	zval_ptr_dtor_off	zend_call_function_off	delta_call	note
 php:8.3.36 (official, PIE)	0x584150	0x576590	0xDBC0	extracted 2026-11-20 via objdump -T; base 0x555555559000 under setarch -R
 php:8.3.37 (official, PIE)	0x5845d0	0x576a10	0xDBC0	same delta; both symbols shifted +0x480 vs .36
 ubuntu php 8.5.4 (external reference profile)	unknown	unknown	0x43EF0	from payload header; not this lab's build
+php:8.5.12-apache	0x7c11a0	0x70a670	0xB6B30	measured 2026-11-20 06:42; maps base 0x7ffff3200000 under setarch -R; runtime DTOR_V=0x7ffff39c11a0
+php:8.5.13-apache	0x7c4720	0x70d940	0xB6DE0	runtime DTOR_P=0x7ffff69c4720; DELTA DIFFERS from .12 — per-build deltas mandatory on 8.5 line

