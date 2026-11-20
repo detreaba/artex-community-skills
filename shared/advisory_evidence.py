@@ -52,27 +52,34 @@ def unique_keys(pairs):
     return record
 
 
-def run(product, catalog, extra_fields, classify, sources):
+def reject_constant(value):
+    raise ValueError("Invalid JSON literal.")
+
+
+def run(product, catalog, extra_fields, classify, sources, *, advisory_profiles=None):
     try:
         raw = sys.stdin.buffer.read(LIMIT + 1)
         if len(raw) > LIMIT:
             raise ValueError("Input exceeds 16 KiB.")
-        data = fields(json.loads(raw, object_pairs_hook=unique_keys), {"asset", "build", "advisory", "evidence"})
+        data = fields(json.loads(raw, object_pairs_hook=unique_keys, parse_constant=reject_constant), {"asset", "build", "advisory", "evidence"})
         cve = data.get("advisory")
         if not isinstance(cve, str) or cve not in catalog:
             raise ValueError("Choose an advisory listed in this skill.")
         scope = {key: alias(data.get(key)) for key in ("asset", "build")}
         base_fields = {"asset", "build", "ref", "product", "origin", "source"}
-        record = fields(data.get("evidence", {}), base_fields | extra_fields)
+        products, profile_fields = (advisory_profiles or {}).get(cve, ((product,), set()))
+        record = fields(data.get("evidence", {}), base_fields | extra_fields | profile_fields)
+        reported_product = record.get("product")
+        selected_product = reported_product if reported_product in products else product
         ref = alias(record.get("ref"))
         if not ref or not all(scope.values()) or any(record.get(k) != v for k, v in scope.items()):
             ref = None
             outcome = unknown("A referenced observation for this asset and build is required.")
-        elif record.get("product") != product or record.get("origin") != "upstream":
+        elif reported_product not in products or record.get("origin") != "upstream":
             outcome = unknown("Verify the upstream product identity. Distribution and custom builds need their vendor's patch evidence.")
         else:
             outcome = classify(catalog[cve], record)
-        print(json.dumps({"advisory": cve, "product": product, **scope, "evidence_ref": ref,
+        print(json.dumps({"advisory": cve, "product": selected_product, **scope, "evidence_ref": ref,
                           **outcome, "applicability": "unknown", "sources": sources(cve)}))
     except (ValueError, RecursionError):
         print(json.dumps({"error": "invalid_input", "detail": "Check the advisory, evidence fields and input size."}))
