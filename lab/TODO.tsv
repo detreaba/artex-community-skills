@@ -20,3 +20,5 @@ general	verify	diff any new evidence dir against the prior one for the same slug
 2026-11-20T10:16:03Z | codex | done | review posted 7036958066
 2026-11-20T10:29:28Z | codex | Compared ruby-onigmo with 20261120T043535Z using SHA-256 and cmp. Both stdout pairs differed. Both stderr pairs and both metadata pairs matched byte for byte. | ruby-onigmo/evidence/20261120T044302Z
 2026-11-20T10:43:49Z | codex | Compared ruby-onigmo with 20261120T043305Z using SHA-256 and cmp. All six stdout, stderr, and metadata pairs differed. | ruby-onigmo/evidence/20261120T043535Z
+2026-11-20T11:00:04Z | codex | Compared ruby-onigmo with 20261120T042623Z using SHA-256 and cmp. All six stdout, stderr, and metadata pairs matched byte for byte. | ruby-onigmo/evidence/20261120T043305Z
+2026-11-20T11:17:16Z | codex | Backlog reviewed. All three local probes have later captures and recorded differentials. The branch query returned zero merged probe PRs. The php2shell and node2shell reruns remain queued. | ledger.tsv
