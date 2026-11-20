@@ -1,9 +1,15 @@
 services:
   vulnerable:
     image: php:8.3.36
-    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    # setarch -R: fixed PIE base (0x555555559000) so profile-deltas addresses hold
+    # (needs seccomp unconfined for personality(); lab container, disposable)
+    security_opt: ["seccomp:unconfined"]
+    command: ["setarch", "-R", "php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    volumes: ["./fixture/:/var/www/html/:ro"]
     ports: ["127.0.0.1:8081:8080"]
   patched:
     image: php:8.3.37
-    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    security_opt: ["seccomp:unconfined"]
+    command: ["setarch", "-R", "php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    volumes: ["./fixture/:/var/www/html/:ro"]
     ports: ["127.0.0.1:8082:8080"]
