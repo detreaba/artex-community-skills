@@ -1,6 +1,6 @@
 ---
 name: framework-patch-review
-description: Review version and configuration evidence for named Craft CMS, Livewire, Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
+description: Review version and configuration evidence for named React Server Components, Craft CMS, Livewire, Drupal core, Next.js, Symfony HTTP Foundation and Django advisories using a supplied deployment inventory and offline checker result.
 ---
 
 # Review framework package patches
@@ -20,7 +20,7 @@ Use the [affected package](examples/gap.json), [fixed package](examples/pass.jso
 | Field | Evidence to supply |
 | --- | --- |
 | `asset`, `build`, `ref` | Redacted identifiers for the deployed application, exact build and inventory artifact. |
-| `ecosystem`, `package` | For Composer, use `composer` and the package name `craftcms/cms`, `livewire/livewire`, `symfony/http-foundation` or `drupal/core`. Other supported pairs are `npm` with `next` and `pypi` with `Django`. The checker accepts PyPI name case variants. |
+| `ecosystem`, `package` | For Composer, use `composer` and the package name `craftcms/cms`, `livewire/livewire`, `symfony/http-foundation` or `drupal/core`. Other supported pairs are `npm` with the named React server-dom package or `next` and `pypi` with `Django`. The checker accepts PyPI name case variants. |
 | `version` | Use the release actually installed in the serving build. Use three numeric components for npm. Composer also accepts a leading `v`. For Django, `6.0` denotes `6.0.0`. The Craft check recognizes published four-part releases and the initial release candidates on its reviewed lines. The Livewire check recognizes the published betas at its affected lower boundary. |
 | `origin`, `deployment_verified` | Set `origin` to `upstream` only for the unmodified upstream package. Set `deployment_verified` to true only when the referenced artifact ties that package to this build. Distribution or custom backports require their own patch records. |
 
@@ -51,6 +51,22 @@ Use the installed `craftcms/cms` entry from the serving build. A project templat
 Run `python3 scripts/check.py < examples/CVE-2025-23209.json`. The fixture uses 5.5.6.1 with a confirmed compromise of the active key. Expect `unknown` for patch status and `conditions_present` for applicability. The bulletin stops the affected interval before 5.5.5 and names 5.5.8 as fixed. The published intervening tags are 5.5.5, 5.5.6, 5.5.6.1 and 5.5.7. The fix appears between 5.5.7 and 5.5.8. Quote this discrepancy when reporting any of those four releases. A routine rotation or an incident involving only a previous key leaves the active key's status unknown. [Project advisory](https://github.com/craftcms/cms/security/advisories/GHSA-x684-96hh-833x) · [Publisher release comparison](https://github.com/craftcms/cms/compare/5.5.7...5.5.8)
 
 The two other fixtures show why the advisory ID matters. Craft 3.9.14 contains the fix for CVE-2024-56145 and is affected by CVE-2025-32432. For the former advisory, the Craft 3 affected range begins at stable 3.0.0. The latter includes 3.0.0-RC1. [PHP configuration fixture](examples/CVE-2024-56145.json) · [Core package fixture](examples/CVE-2025-32432.json)
+
+## Check a deployed React Server Components package
+
+For CVE-2025-55182, identify the exact `react-server-dom-webpack`, `react-server-dom-turbopack` or `react-server-dom-parcel` package that the server resolves. Use a separate inventory record for each installed copy or deployment. The publisher lists four affected stable versions. [React bulletin](https://react.dev/blog/2025/12/03/critical-security-vulnerability-in-react-server-components) · [Publisher advisory](https://github.com/react/react/security/advisories/GHSA-fv66-9v8q-g76r)
+
+| Stable branch | Affected | First fixed | Reviewed npm distributions |
+| --- | --- | --- | --- |
+| 19.0 | 19.0.0 | 19.0.1 | Webpack and Turbopack |
+| 19.1 | 19.1.0 and 19.1.1 | 19.1.2 | Webpack, Turbopack and Parcel |
+| 19.2 | 19.2.0 | 19.2.1 | Webpack, Turbopack and Parcel |
+
+Supply `inventory.serving_package` with the same `asset`, `build`, `package` and `version` as the package inventory. Use a distinct `ref` for a saved server-resolution and content-verification record. Set `source` to `server_resolver`. Set `contents_verified` to true only when the record establishes that the resolved package’s deployed contents match the authenticated npm distribution. Enter that tarball’s complete `sha512-` integrity string. Reading integrity from a lockfile establishes the expected download. A content comparison or verified immutable-build attestation supplies evidence for what serves requests. A private framework bundle, a locally modified package or a client dependency alone leaves the upstream patch status unknown. [Downstream Next.js bulletin](https://nextjs.org/blog/CVE-2025-66478)
+
+The checker compares the package name, version and integrity with 83 published archives on the three named branches. Parcel has no stable npm 19.0 release. Unlisted builds, canaries and the later 19.3 line give `unknown` with an empty first fix. Each verdict concerns CVE-2025-55182. Consult current publisher guidance when choosing an upgrade. [Webpack registry](https://registry.npmjs.org/react-server-dom-webpack) · [Turbopack registry](https://registry.npmjs.org/react-server-dom-turbopack) · [Parcel registry](https://registry.npmjs.org/react-server-dom-parcel)
+
+Run `python3 scripts/check.py < examples/CVE-2025-55182.json`. The synthetic example reports Webpack 19.1.1 as affected, first fixed in 19.1.2. For deployment applicability, record `server_supports_react_server_components` against that same build. A server can support RSC even when the application defines no Server Function endpoints. A verified client-only build or a server verified to lack RSC support establishes an absent condition. Missing feature evidence leaves it unknown. [Example](examples/CVE-2025-55182.json) · [React deployment scope](https://react.dev/blog/2025/12/03/critical-security-vulnerability-in-react-server-components)
 
 ## Check a deployed Livewire component
 
