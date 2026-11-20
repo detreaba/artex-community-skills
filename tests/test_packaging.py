@@ -67,6 +67,25 @@ class PackageTests(unittest.TestCase):
             build(self.root)
         self.assertEqual(snapshot, {f.name: f.read_bytes() for f in output.iterdir()})
 
+    def test_tomcat_artifact_catalogs_are_required_and_scoped(self):
+        skill = self.skill.rename(self.root / "skills" / "tomcat-patch-review")
+        (skill / "SKILL.md").write_text("---\nname: tomcat-patch-review\n---\n")
+        catalogs = ("legacy-artifacts.sha256", "october-artifacts.tsv")
+        for directory in (skill, self.root / "skills" / "second-skill"):
+            for name in catalogs:
+                (directory / "scripts" / name).write_text("fixture\n")
+        for name in catalogs:
+            path = skill / "scripts" / name
+            path.unlink()
+            with self.assertRaises(ValueError):
+                build(self.root)
+            path.write_text("fixture\n")
+        build(self.root)
+        for archive in (self.root / "dist").glob("*.zip"):
+            with ZipFile(archive) as bundle:
+                for name in catalogs:
+                    self.assertEqual(f"{archive.stem}/scripts/{name}" in bundle.namelist(), archive.stem == skill.name)
+
     def test_rejects_symlinked_files_and_directories(self):
         target = self.skill / "scripts/check.py"
         target.unlink()
