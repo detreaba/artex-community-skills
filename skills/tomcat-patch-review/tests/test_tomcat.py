@@ -137,6 +137,42 @@ class TomcatTests(unittest.TestCase):
         req["inventory"]["origin"] = "distribution"
         self.assert_unknown(req)
 
+    def test_tribes_regression_is_one_published_release_per_line(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+        for prior, affected, fixed, later in (("9.0.115", "9.0.116", "9.0.117", "9.0.118"),
+                                               ("10.1.52", "10.1.53", "10.1.54", "10.1.55"),
+                                               ("11.0.18", "11.0.20", "11.0.21", "11.0.22")):
+            for v, status, first in ((prior, "outside_affected_range", None), (affected, "affected_version", fixed),
+                                     (fixed, "vendor_fix_present", fixed), (later, "vendor_fix_present", fixed)):
+                with self.subTest(version=v):
+                    sample["inventory"].update(implementation_version=v, upstream_version=v)
+                    row = self.result(sample)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"], row["observed_version"]),
+                                     (status, first, v))
+
+    def test_tribes_class_and_defining_artifact_are_required(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+        for field, value in (("class_name", "org.apache.catalina.servlets.DefaultServlet"),
+                             ("bundle_symbolic_name", CATALINA), ("bundle_symbolic_name", EMBEDDED),
+                             ("source", "pom"), ("deployment_verified", False), ("upstream_version", "10.1.54")):
+            req = {"advisory": sample["advisory"], "inventory": {**sample["inventory"], field: value}}
+            self.assert_unknown(req)
+        for v in ("8.5.100", "10.0.27", "11.0.19", "10.1.58", "9.0.114", "11.0.30"):
+            sample["inventory"].update(implementation_version=v, upstream_version=v)
+            self.assert_unknown(sample)
+
+    def test_named_tribes_class_first_shipped_in_9_0_13(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+        for v in ("9.0.12", "9.0.13"):
+            sample["inventory"].update(implementation_version=v, upstream_version=v,
+                                       bundle_symbolic_name="TOMCAT_" + v.replace(".", "_"),
+                                       maven_provenance={"coordinate": "org.apache.tomcat:tomcat-tribes:" + v,
+                                                         "ref": "artifact-comparison", "loaded_sha256": "a" * 64,
+                                                         "published_sha256": "a" * 64})
+            row = self.result(sample)
+            self.assertEqual(row["patch_status"], "unknown" if v == "9.0.12" else "outside_affected_range")
+            self.assertIsNone(row["first_fixed_on_branch"])
+
     def test_malformed_input_returns_one_json_error(self):
         for raw in (b"not json", b"\xff", b"{}", b"[]", b'{"advisory":null,"advisory":"CVE-2026-103119"}',
                     b'{"advisory":"CVE-2026-103119","inventory":[]}', b'{"advisory":"other"}',

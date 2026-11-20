@@ -1,6 +1,6 @@
 ---
 name: tomcat-patch-review
-description: Check Apache Tomcat patch status for CVE-2026-103119 and CVE-2025-24813 using saved evidence of the defining artifact loaded in one serving JVM.
+description: Check Apache Tomcat patch status for CVE-2026-103119, CVE-2025-24813 and CVE-2026-34486 using saved evidence of the defining artifact loaded in one serving JVM.
 ---
 
 # Review the Tomcat release loaded by a serving JVM
@@ -23,6 +23,18 @@ For CVE-2025-24813, identify `org.apache.catalina.servlets.DefaultServlet` in Ca
 | 11.0 | 11.0.0 through 11.0.2 | 11.0.3 |
 
 Only published stable artifacts through 20 November 2026 are covered. Skipped patch numbers and the 10.0 line yield `unknown`. Apache’s ranges include early milestones and the numeric betas 8.5.0, 8.5.2, 9.0.1 and 9.0.2. These releases require prerelease-specific review. [Apache archive](https://archive.apache.org/dist/tomcat/) · [2016 announcements](https://tomcat.apache.org/oldnews-2016.html) · [2017 announcements](https://tomcat.apache.org/oldnews-2017.html)
+
+## Tribes clustering interceptor
+
+For CVE-2026-34486, identify `org.apache.catalina.tribes.group.interceptors.EncryptInterceptor` in the serving JVM. Its defining artifact is Tomcat Tribes, with the modern bundle name `org.apache.tomcat-tribes` and Maven coordinate `org.apache.tomcat:tomcat-tribes:VERSION`. A loaded Catalina, embedded-core or enclosing application version leaves the Tribes release unresolved. Apache published this advisory on 9 April 2026. [Apache CNA record](https://www.cve.org/CVERecord?id=CVE-2026-34486) · [Apache 9](https://tomcat.apache.org/security-9.html#Fixed_in_Apache_Tomcat_9.0.117) · [Apache 10](https://tomcat.apache.org/security-10.html#Fixed_in_Apache_Tomcat_10.1.54) · [Apache 11](https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.21) · [Published Tribes artifacts](https://repo.maven.apache.org/maven2/org/apache/tomcat/tomcat-tribes/)
+
+| Branch | Only affected release | First fixed |
+| --- | --- | --- |
+| 9.0 | 9.0.116 | 9.0.117 |
+| 10.1 | 10.1.53 | 10.1.54 |
+| 11.0 | 11.0.20 | 11.0.21 |
+
+Earlier reviewed stable releases that contain the class give `outside_affected_range` with a null first fix. On 9.0 the first published artifact containing this class was 9.0.13. An inventory claiming to have loaded it from an earlier 9.0 release yields `unknown`. Published stable releases at or after the fix on each reviewed line give `vendor_fix_present`. The class inventory does not establish clustering configuration. [Affected Tribes example](examples/CVE-2026-34486.json)
 
 ## Identify the loaded artifact
 
@@ -50,6 +62,7 @@ In ARTEX, ask for the checker JSON and its evidence reference. Cite the advisory
 
 - `affected_version` identifies a loaded upstream release inside the published range. Give `first_fixed_on_branch` when present. For affected 8.5, report that Apache provides no fix on that line. Request a new class inventory after updating and restarting. [Affected standalone example](examples/gap.json)
 - `vendor_fix_present` confirms the fix in the identified artifact. Other JVMs in a rolling deployment need their own observations. [Fixed embedded example](examples/pass.json)
+- `outside_affected_range` identifies a verified Tribes release predating its branch’s regression. Report the observed version and leave the first fix empty.
 - `unknown` identifies missing or conflicting evidence, another release line, or a release outside this review. Milestones, including the affected M25 named by Apache, require separate review. A distributor build needs its distributor's patch decision. Use `patch_reason` to identify the missing evidence. [Build-file-only example](examples/unknown.json)
 
 Keep `applicability` unknown. A release inventory cannot establish runtime configuration, site exposure or impact. An `invalid_input` result calls for a corrected JSON record.

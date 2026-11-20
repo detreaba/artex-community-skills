@@ -7,8 +7,11 @@ from typing import NamedTuple
 
 CONNECTOR = "CVE-2026-103119"
 DEFAULT_SERVLET = "CVE-2025-24813"
+TRIBES = "CVE-2026-34486"
+INTERCEPTOR = "org.apache.catalina.tribes.group.interceptors.EncryptInterceptor"
 CATALINA_BUNDLES = ("org.apache.tomcat-catalina", "org.apache.tomcat-embed-core")
 COORDINATES = {
+    "org.apache.tomcat-tribes": "org.apache.tomcat:tomcat-tribes",
     "org.apache.tomcat-catalina": "org.apache.tomcat:tomcat-catalina",
     "org.apache.tomcat-embed-core": "org.apache.tomcat.embed:tomcat-embed-core",
 }
@@ -21,9 +24,17 @@ class Profile(NamedTuple):
     first_fix: dict
     sources: tuple
     reviewed: str
+    affected_releases: tuple = ()
 
 
 PROFILES = {
+    TRIBES: Profile(
+        INTERCEPTOR, ("org.apache.tomcat-tribes",), {"9.0": 117, "10.1": 54, "11.0": 21},
+        ("https://www.cve.org/CVERecord?id=CVE-2026-34486",
+         "https://tomcat.apache.org/security-9.html#Fixed_in_Apache_Tomcat_9.0.117",
+         "https://tomcat.apache.org/security-10.html#Fixed_in_Apache_Tomcat_10.1.54",
+         "https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.21", ARCHIVE),
+        "2026-11-20", ("9.0.116", "10.1.53", "11.0.20")),
     CONNECTOR: Profile(
         "org.apache.catalina.connector.OutputBuffer", CATALINA_BUNDLES, {"11.0": 27},
         ("https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.27", ARCHIVE + "tomcat-11/"),
@@ -94,6 +105,8 @@ def evidence_problem(record, scope, ref, profile, provenance):
     if version not in RELEASES or RELEASES[version][0] not in profile.first_fix:
         return "This version is outside the published stable releases covered for this advisory."
     line, patch = RELEASES[version]
+    if profile.class_name == INTERCEPTOR and line == "9.0" and patch < 13:
+        return "This Tomcat Tribes release did not ship the named interceptor class."
     if not artifact_matches(record, profile, version, line, patch, provenance):
         return "Identify the defining upstream artifact. Older or generic manifests need matching Maven provenance."
     return None
@@ -104,6 +117,8 @@ def release_decision(profile, line, patch):
     if fix is None:
         return "affected_version", "Apache lists this release as affected and has no upstream fix on this line.", None
     first = f"{line}.{fix}"
+    if profile.affected_releases and patch < fix and f"{line}.{patch}" not in profile.affected_releases:
+        return "outside_affected_range", "This published release predates the affected release on its branch.", None
     if patch < fix:
         return "affected_version", "The loaded artifact is a published stable release inside Apache's affected range.", first
     return "vendor_fix_present", "The loaded upstream artifact includes this advisory's fix.", first
