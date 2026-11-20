@@ -207,7 +207,9 @@ class FrameworkTests(unittest.TestCase):
         sample = json.loads((ROOT / "examples/CVE-2026-126187.json").read_bytes())
         cfg = sample["applicability"]
         for supports, response, expected in ((True, None, "unknown"), (True, True, "conditions_present"),
-                                              (False, True, "conditions_absent"), (True, False, "conditions_absent")):
+                                              (False, True, "conditions_absent"), (True, False, "unknown"),
+                                              (None, False, "unknown"), (False, False, "conditions_absent"),
+                                              (False, None, "conditions_absent")):
             cfg["conditions"] = {"server_supports_react_server_components": supports,
                                  "publisher_response_condition_present": response}
             row = self.check(sample)
