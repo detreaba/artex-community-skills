@@ -549,6 +549,44 @@ class VerdictRules(unittest.TestCase):
                                        encryption_s2c=["aes128-ctr", ["x"]]))
         self.assertEqual(out["per_category"]["cipher"], "unknown")
 
+    def test_at_sign_name_is_fully_case_sensitive(self):
+        # RFC 4251 Sec. 6 makes the whole name case-sensitive, INCLUDING the domain
+        # part (no DNS case-insensitivity carve-out in Sec. 6). So an offer that
+        # differs from a forbidden name only in domain case is a DISTINCT algorithm
+        # and is not matched -> pass. (Declined F-SSH-21: domain-case folding would
+        # contradict the literal Sec. 6 text; left to the owner if desired.)
+        rec = self._rec(encryption_c2s=["3des-cbc@OpenSSH.COM"],
+                        encryption_s2c=["3des-cbc@OpenSSH.COM"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
+
+    def test_at_sign_required_domain_case_mismatch_is_gap(self):
+        # The dual: an offer whose domain case differs from a required name does NOT
+        # satisfy it (distinct names per Sec. 6) -> gap, not a false pass.
+        rec = self._rec(mac_c2s=["hmac-sha2-256-etm@OpenSSH.COM"],
+                        mac_s2c=["hmac-sha2-256-etm@OpenSSH.COM"])
+        rec["policy"] = {"required": {"mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["mac"], "gap")
+
+    def test_local_part_case_is_significant(self):
+        # The local part is likewise case-sensitive: "3DES-CBC@openssh.com" is a
+        # distinct algorithm from forbidden "3des-cbc@openssh.com" -> not a gap.
+        rec = self._rec(encryption_c2s=["3DES-CBC@openssh.com"],
+                        encryption_s2c=["3DES-CBC@openssh.com"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
+
+    def test_numeric_label_domain_is_a_distinct_name_boundary(self):
+        # Boundary decision (F-SSH-22): _is_name requires >=2 non-empty domain
+        # labels but does not enforce full RFC 1034/3696 FQDN semantics (e.g. an
+        # all-numeric label). "3des-cbc@127.0.0.1" is a valid distinct name, not the
+        # forbidden "3des-cbc@openssh.com" -> pass. It cannot slip a standard
+        # forbidden name; deeper FQDN validation is deferred to the owner.
+        rec = self._rec(encryption_c2s=["3des-cbc@127.0.0.1"],
+                        encryption_s2c=["3des-cbc@127.0.0.1"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
+
     def test_absent_policy_category_is_no_constraint(self):
         # Control for F-SSH-16: a category simply ABSENT (not null) is no
         # constraint -- an unrelated offer is not judged against it.

@@ -102,10 +102,12 @@ directions independently, so:
   required-miss against it reads `unknown`, not `gap`; a hit against a partial
   `forbidden` list is still a definite `gap`.
 
-Matching is **exact token equality** and case-sensitive (RFC 4251 §6): a policy
-name matches an offered name only when the whole tokens are identical, never by
-prefix, suffix or substring. `hmac-sha2-256` and `hmac-sha2-256-etm@openssh.com`
-are distinct names.
+Matching is **exact token equality**, case-sensitive in full — never by prefix,
+suffix or substring. RFC 4251 §6 makes the whole name case-sensitive ("Names are
+case-sensitive"), including the `name@domain` form; the domain part is not folded
+(§6 states no DNS case-insensitivity carve-out). So `hmac-sha2-256` and
+`hmac-sha2-256-etm@openssh.com` are distinct names, and so are `x@openssh.com` and
+`x@OpenSSH.COM`.
 
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.
