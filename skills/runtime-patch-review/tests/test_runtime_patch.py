@@ -18,12 +18,17 @@ PHP_CGI = "CVE-2026-129538"
 PHP_OOM = "CVE-2026-109618"
 PHP_STALE = "CVE-2026-109619"
 NODE = "CVE-2026-123865"
+PHP_SESSION_FILES = "CVE-2026-126714"
+PHP_FPM_SMUGGLING = "CVE-2026-129289"
+PHP_TZ_CACHE = "CVE-2026-129496"
+NOV_RCE = {PHP_SESSION_FILES: "session_files_handler_in_use", PHP_FPM_SMUGGLING: "backend_connection_reuse_enabled",
+           PHP_TZ_CACHE: "php_error_log_to_file"}
 
 
 def inventory(advisory, version, **changes):
     inv = {"asset": "portal-a", "build": "release-7", "ref": "serving-inventory-12",
            "origin": "upstream", "version": version, "serving_process_verified": True,
-           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM, PHP_STALE) else "node"}
+           "runtime": "php" if advisory in (PHP, PHP_FPM, PHP_CGI, PHP_OOM, PHP_STALE, *NOV_RCE) else "node"}
     return {"advisory": advisory, "inventory": {**inv, **changes}}
 
 
@@ -224,6 +229,70 @@ class RuntimePatchTests(unittest.TestCase):
             with self.subTest(data=data):
                 with self.assertRaises(ValueError):
                     review(data)
+
+    def test_november_rce_branch_cutoffs_through_cli(self):
+        # GHSA-fm2m-fjf5-v3cp, GHSA-qc49-hpvq-g2w6 and GHSA-gr4f-wgx5-jpfv list the same four branch fixes;
+        # the 8.6.0 ChangeLog records "Fixed GHSA-..." for each.
+        for advisory in NOV_RCE:
+            for below, fixed, above in (("8.2.35", "8.2.36", "8.2.40"), ("8.3.36", "8.3.37", "8.3.38"),
+                                        ("8.4.27", "8.4.28", "8.4.29"), ("8.5.12", "8.5.13", "8.5.14")):
+                for version, status in ((below, "affected_version"), (fixed, "vendor_fix_present"),
+                                        (above, "vendor_fix_present")):
+                    with self.subTest(advisory=advisory, version=version):
+                        row = self.php_cli(advisory, version)
+                        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
+            for version, status, fixed in (("8.2.0", "affected_version", "8.2.36"), ("8.5.0", "affected_version", "8.5.13"),
+                                           ("8.6.0", "vendor_fix_present", "8.6.0"), ("8.6.1", "vendor_fix_present", "8.6.0")):
+                with self.subTest(advisory=advisory, version=version):
+                    row = self.php_cli(advisory, version)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), (status, fixed))
+                    self.assertIn("https://www.php.net/ChangeLog-8.php#8.6.0", row["sources"])
+
+    def test_november_rce_needs_a_reviewed_stable_upstream_line(self):
+        # End-of-life 8.1 is inside the vendor's ranges with no fix; it stays unknown, as do future and test builds.
+        for advisory in NOV_RCE:
+            for version, changes in (("8.1.34", {}), ("7.4.33", {}), ("8.7.0", {}), ("9.0.0", {}), ("8.6.0RC7", {}),
+                                     ("8.5.13RC1", {}), ("8.2.26", {"origin": "distribution"}),
+                                     ("8.5.13", {"origin": "custom"}), ("8.5.13", {"serving_process_verified": False})):
+                with self.subTest(advisory=advisory, version=version, changes=changes):
+                    row = self.php_cli(advisory, version, **changes)
+                    self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("unknown", None))
+
+    def test_november_rce_conditions_are_each_necessary(self):
+        for advisory, condition in NOV_RCE.items():
+            for value, want in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+                with self.subTest(advisory=advisory, value=value):
+                    row = self.php_cli(advisory, "8.5.12", config(**{condition: value}))
+                    self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", want))
+            other = dict(config(**{condition: True}), build="release-8")
+            self.assertEqual(self.php_cli(advisory, "8.5.12", other)["applicability"], "unknown")
+            # Configuration evidence stays independent of the patch verdict.
+            self.assertEqual(self.php_cli(advisory, "8.5.13", config(**{condition: True}))["applicability"],
+                             "conditions_present")
+
+    def test_november_rce_sources_and_limitations(self):
+        ghsa = {PHP_SESSION_FILES: "GHSA-fm2m-fjf5-v3cp", PHP_FPM_SMUGGLING: "GHSA-qc49-hpvq-g2w6", PHP_TZ_CACHE: "GHSA-gr4f-wgx5-jpfv"}
+        phrases = {PHP_SESSION_FILES: "Other session storage is not affected", PHP_FPM_SMUGGLING: "php://input",
+                   PHP_TZ_CACHE: "restarting the PHP master process and all workers"}
+        for advisory in NOV_RCE:
+            with self.subTest(advisory=advisory):
+                row = self.php_cli(advisory, "8.5.12")
+                self.assertEqual(row["sources"], ["https://github.com/php/php-src/security/advisories/" + ghsa[advisory],
+                                                  "https://www.php.net/ChangeLog-8.php#8.6.0"])
+                self.assertIn(phrases[advisory], row["limitations"][2])
+                # A condition name from another advisory is rejected through the CLI.
+                request = dict(inventory(advisory, "8.5.12"), applicability=config(node_handles_http2=True))
+                run = subprocess.run([sys.executable, "-ISB", str(CHECKER)], input=json.dumps(request), text=True,
+                                     capture_output=True, timeout=5)
+                self.assertEqual((run.returncode, json.loads(run.stdout)["error"]), (2, "invalid_input"))
+
+    def test_profile_without_conditions_never_reports_conditions_present(self):
+        # all() over an empty tuple is true; a scoped empty record must still give unknown.
+        profile = dict(checker.ADVISORIES[PHP_SESSION_FILES], conditions=())
+        scope = {"asset": "portal-a", "build": "release-7"}
+        self.assertEqual(checker._conditions(profile, config(), scope), ("unknown", "config-review-7"))
+        with self.assertRaises(ValueError):
+            checker._conditions(profile, config(session_files_handler_in_use=True), scope)
 
     def test_isolated_cli_and_malformed_inputs(self):
         for input_bytes, expected in [
