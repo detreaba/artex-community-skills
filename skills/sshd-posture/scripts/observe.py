@@ -27,12 +27,12 @@ import os
 import socket
 import struct
 import sys
+import time
 
 TIMEOUT = 5
 MAX_BANNER_BYTES = 8192
 MAX_BANNER_LINES = 64
 MAX_PACKET = 35000  # RFC 4253 section 6.1 maximum uncompressed packet size
-MAX_PREKEX_BYTES = 262144  # cumulative pre-KEXINIT bytes to tolerate before giving up
 SSH_MSG_KEXINIT = 20
 CLIENT_IDENT = b"SSH-2.0-artex-sshd-posture-observer\r\n"
 
@@ -183,9 +183,14 @@ def observe(req):
         sock.sendall(_client_kexinit())
 
         buf = bytearray(leftover)
+        deadline = time.monotonic() + TIMEOUT
 
         def need(n):
             while len(buf) < n:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("observation window elapsed")
+                sock.settimeout(remaining)
                 chunk = sock.recv(4096)
                 if not chunk:
                     raise EOFError("connection closed before %d bytes" % n)
@@ -193,12 +198,15 @@ def observe(req):
 
         # SSH_MSG_IGNORE (2), SSH_MSG_UNIMPLEMENTED (3) and SSH_MSG_DEBUG (4) may
         # arrive before KEXINIT (RFC 4253 section 11) with no count limit; skip
-        # any number of them -- bounded by cumulative bytes, not a packet count --
-        # until KEXINIT (20), a disconnect (1), or an unexpected message.
+        # any number of them -- bounded by a total-time observation window, not a
+        # packet or byte count -- until KEXINIT (20), a disconnect (1), or an
+        # unexpected message. A server that floods past the window reads unknown.
         try:
-            consumed = 0
             skipped = 0
             while True:
+                if time.monotonic() >= deadline:
+                    record["notes"].append("KEXINIT not seen within the %ds observation window" % TIMEOUT)
+                    return record
                 need(4)
                 (pkt_len,) = struct.unpack(">I", bytes(buf[:4]))
                 if pkt_len < 2 or pkt_len > MAX_PACKET:
@@ -207,7 +215,6 @@ def observe(req):
                 need(4 + pkt_len)
                 body = bytes(buf[4:4 + pkt_len])
                 del buf[:4 + pkt_len]
-                consumed += 4 + pkt_len
                 pad_len = body[0]
                 payload_len = pkt_len - pad_len - 1
                 if payload_len < 1:
@@ -236,13 +243,10 @@ def observe(req):
                     return record
                 if msg in (2, 3, 4):  # IGNORE, UNIMPLEMENTED, DEBUG -- skip any number
                     skipped += 1
-                    if consumed > MAX_PREKEX_BYTES:
-                        record["notes"].append("KEXINIT not seen within %d bytes of pre-KEXINIT traffic" % MAX_PREKEX_BYTES)
-                        return record
                     continue
                 record["notes"].append("unexpected message before KEXINIT (msg %d)" % msg)
                 return record
-        except (EOFError, ValueError, struct.error) as exc:
+        except (EOFError, ValueError, struct.error, socket.timeout, TimeoutError) as exc:
             record["notes"].append("could not read/parse transport packets: %s" % exc)
             return record
     except (socket.timeout, TimeoutError):

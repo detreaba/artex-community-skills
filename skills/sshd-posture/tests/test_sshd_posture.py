@@ -321,9 +321,21 @@ class LoopbackParser(unittest.TestCase):
         self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
 
-    def test_ignore_flood_beyond_byte_cap_is_unknown(self):
-        # The byte budget bounds a DoS flood: large IGNORE packets exceeding the
-        # cap with no KEXINIT yield a bounded unknown, not a hang.
+    def test_large_ignore_flood_then_kexinit_is_gap(self):
+        # F-SSH-6: ~9x32 KB IGNORE packets (over the old 256 KB byte cap) followed
+        # by a KEXINIT are read within the time window, so the forbidden kex is
+        # still observed.
+        packet = (_big_ignore(32768) * 9) + build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_flood_without_kexinit_is_unknown(self):
+        # A flood of IGNORE packets with no KEXINIT (server then closes) -> unknown.
         with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", _big_ignore() * 9) as fx:
             rec = observe.observe(_req(fx.port, POLICY))
         self.assertFalse(rec["kexinit_read"])
