@@ -99,9 +99,9 @@ class FrameworkTests(unittest.TestCase):
 
     def test_craft_initial_release_candidates_unpublished_versions_and_advisory_gap(self):
         for advisory, tag, want in (
-            (CRAFT_PHP, "3.0.0-RC17.1", "outside_affected_range"), (CRAFT_CORE, "3.0.0-RC17.1", "affected_version"),
+            (CRAFT_PHP, "3.0.0-RC17.1", "unknown"), (CRAFT_CORE, "3.0.0-RC17.1", "affected_version"),
             (CRAFT_PHP, "4.0.0-RC1", "affected_version"), (CRAFT_KEY, "5.0.0-RC1", "affected_version"),
-            (CRAFT_KEY, "3.9.14", "outside_affected_range"), (CRAFT_KEY, "5.5.6.2", "unknown"),
+            (CRAFT_KEY, "3.0.0-RC1", "unknown"), (CRAFT_KEY, "3.9.14", "unknown"), (CRAFT_KEY, "5.5.6.2", "unknown"),
             (CRAFT_PHP, "4.0.0-beta.1", "unknown"), (CRAFT_CORE, "6.0.0", "unknown"),
         ):
             with self.subTest(advisory=advisory, tag=tag):

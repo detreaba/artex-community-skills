@@ -67,7 +67,7 @@ ADVISORIES = {
     "CVE-2025-23209": {
         **CRAFT_PACKAGE, "published": "2025-01-18",
         "windows": (((4, 0, 0), (4, 13, 8), (5, 0, 0)), ((5, 0, 0), (5, 5, 8), (6, 0, 0))),
-        "outside": (((3, 0, 0), (4, 0, 0)),), "unresolved_range": ((5, 5, 5), (5, 5, 8)),
+        "unresolved_range": ((5, 5, 5), (5, 5, 8)),
         "conditions": ("active_craft_key_compromise_confirmed",), "positive_evidence_only": True,
         "sources": [CRAFT_ADVISORIES + "GHSA-x684-96hh-833x", "https://github.com/craftcms/cms/releases/tag/5.5.8"],
     },
@@ -191,7 +191,7 @@ def craft_patch(profile, raw):
     base, _, candidate = tag.partition("-")
     version = tuple(map(int, base.split(".")))
     if candidate and version[0] == 3 and profile.get("stable_3_floor"):
-        return tag, ("outside_affected_range", None, "The affected Craft 3 range begins at the stable 3.0.0 release.")
+        return tag, ("unknown", None, "The publisher starts the affected range at stable 3.0.0 and gives no determination for earlier Craft 3 candidates.")
     gap = profile.get("unresolved_range")
     if gap and gap[0] <= version < gap[1]:
         return tag, ("unknown", None, "The publisher ends the affected range before 5.5.5 and identifies 5.5.8 as fixed. Verify this intervening release separately.")
