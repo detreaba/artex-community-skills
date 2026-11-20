@@ -14,16 +14,24 @@ MODEL_CODES = {
     "USG FLEX 200H": "ABWV", "USG FLEX 200HP": "ABXE",
     "USG FLEX 500H": "ABZH", "USG FLEX 700H": "ABZI",
 }
-# (uOS 1.x trunk, model patch) -> Zyxel's per-model production release table.
-# 50H and 50HP first appear in the reviewed tables at 1.32.
+# Each bulletin's table lists one of these two observed model groups.
+ORIGINAL_CODES = frozenset(("ABXF", "ACII", "ABWV", "ABXE", "ABZH", "ABZI"))
+EIGHT_CODES = ORIGINAL_CODES | {"ACLO", "ACLP"}
+# (uOS trunk, patch) -> (Zyxel release table, hardware codes in that table).
 RELEASE_NOTES = {
-    (10, 1): 19966, (20, 0): 22418, (20, 2): 23502, (21, 0): 24413,
-    (30, 0): 26418, (30, 1): 26795, (31, 0): 27878, (32, 0): 28988,
-    (35, 0): 30179, (35, 1): 30404, (35, 2): 30611, (36, 0): 30935,
-    (37, 0): 32050, (37, 1): 32407, (38, 0): 32686, (39, 0): 33654, (40, 0): 34340,
+    (10, 1): (19966, ORIGINAL_CODES), (20, 0): (22418, ORIGINAL_CODES),
+    (20, 2): (23502, ORIGINAL_CODES), (21, 0): (24413, ORIGINAL_CODES),
+    (30, 0): (26418, ORIGINAL_CODES), (30, 1): (26795, ORIGINAL_CODES),
+    (31, 0): (27878, ORIGINAL_CODES), (32, 0): (28988, EIGHT_CODES),
+    (35, 0): (30179, EIGHT_CODES), (35, 1): (30404, EIGHT_CODES),
+    (35, 2): (30611, EIGHT_CODES), (36, 0): (30935, EIGHT_CODES),
+    (37, 0): (32050, EIGHT_CODES), (37, 1): (32407, EIGHT_CODES),
+    (38, 0): (32686, EIGHT_CODES), (39, 0): (33654, EIGHT_CODES),
+    (40, 0): (34340, EIGHT_CODES),
 }
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,127}")
-FIRMWARE = re.compile(r"V?1\.([0-9]{2}) ?\(([A-Z]{4})\.(0|[1-9][0-9]?)\)(?:C0)?")
+FIRMWARE = re.compile(r"V?(?P<major>[0-9]+)\.(?P<trunk>[0-9]{2}) ?\((?P<code>[A-Z]{4})\."
+                      r"(?P<patch>0|[1-9][0-9]?)\)(?P<suffix>[A-Za-z0-9_-]*)")
 LIMIT = 16_384
 
 
@@ -37,6 +45,11 @@ def fields(record, allowed):
     return record
 
 
+def version_fields(row):
+    value = row.get("Version")
+    return FIRMWARE.fullmatch(value) if isinstance(value, str) else None
+
+
 def classify(rows):
     running = [row for row in rows if row.get("Status") == "Running"]
     if len(running) != 1 or any(row.get("Status") not in ("Running", "Standby") for row in rows):
@@ -47,15 +60,20 @@ def classify(rows):
         return {"patch_reason": "This model is outside the reviewed USG FLEX H hardware."}
     if any(other.get("Model") != model for other in rows):
         return {"patch_reason": "The firmware rows disagree on the physical appliance model."}
-    version = row.get("Version")
-    match = FIRMWARE.fullmatch(version) if isinstance(version, str) else None
-    if not match or match[2] != MODEL_CODES[model]:
+    code = MODEL_CODES[model]
+    match = version_fields(row)
+    if not match or match["major"] != "1" or match["code"] != code or match["suffix"] not in ("", "C0"):
         return {"patch_reason": "Supply the complete running production firmware version for this model code."}
-    trunk, patch = int(match[1]), int(match[3])
-    note = RELEASE_NOTES.get((trunk, patch))
-    if not note or (trunk < 32 and model in ("USG FLEX 50H", "USG FLEX 50HP")):
+    for other in rows:
+        if other["Status"] == "Standby":
+            staged = version_fields(other)
+            if not staged or staged["code"] != code:
+                return {"patch_reason": "Reconcile the Standby version and hardware code with the named appliance."}
+    trunk, patch = int(match["trunk"]), int(match["patch"])
+    release = RELEASE_NOTES.get((trunk, patch))
+    if not release or code not in release[1]:
         return {"patch_reason": "This model and firmware build are absent from the reviewed release tables."}
-    first_fixed = f"V1.32({MODEL_CODES[model]}.0)C0"
+    first_fixed = f"V1.32({code}.0)C0"
     if trunk < 20:
         status, reason = "outside_affected_range", "The running release predates the vendor's affected range."
         first_fixed = None
@@ -63,8 +81,8 @@ def classify(rows):
         status, reason = "affected_version", "The running production firmware falls in the vendor's affected range."
     else:
         status, reason = "vendor_fix_present", "The running production firmware includes the named advisory fix."
-    return {"patch_status": status, "patch_reason": reason, "model": model, "observed_version": version,
-            "first_fixed_on_branch": first_fixed, "sources": [BULLETIN, f"https://community.zyxel.com/en/discussion/{note}"]}
+    return {"patch_status": status, "patch_reason": reason, "model": model, "observed_version": row["Version"],
+            "first_fixed_on_branch": first_fixed, "sources": [BULLETIN, f"https://community.zyxel.com/en/discussion/{release[0]}"]}
 
 
 def review(request):
@@ -95,7 +113,7 @@ def review(request):
     return {"advisory": ADVISORY, "product": "Zyxel USG FLEX H", "scope": scope,
             "evidence_refs": {"inventory": ref, "origin": origin_ref}, "model": None, "observed_version": None,
             "first_fixed_on_branch": None, "patch_status": "unknown", "applicability": "unknown",
-            "reviewed": "2026-11-19", "sources": [BULLETIN], **result}
+            "reviewed": "2026-11-20", "sources": [BULLETIN], **result}
 
 
 def unique_keys(pairs):

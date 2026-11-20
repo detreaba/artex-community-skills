@@ -88,6 +88,17 @@ class FirmwareTests(unittest.TestCase):
                         capture([row(fixed), {"Version": "V1.31(ABXE.0)"}])):
             self.assert_unknown(request)
 
+    def test_standby_hardware_code_must_agree_with_the_running_unit(self):
+        fixed = row("V1.32(ABXE.0)C0")
+        for version in ("V1.32(ABWV.0)C0", "V1.31(ABWV.0)b2", "", None):
+            standby = row(version, status="Standby")
+            for rows in ([fixed, standby], [standby, fixed]):
+                self.assert_unknown(capture(rows))
+        for version in ("V1.31(ABXE.0)", "V1.80(ABXE.6)b2"):
+            result = self.run_request(capture([row(version, status="Standby"), fixed]))
+            self.assertEqual((result["patch_status"], result["observed_version"]),
+                             ("vendor_fix_present", "V1.32(ABXE.0)C0"))
+
     def test_other_unit_boot_or_unverified_provenance(self):
         for updates in ({"asset": "unit-b"}, {"build": "earlier-boot"}, {"ref": ""}, {"origin_ref": None},
                         {"source": None}, {"deployment_verified": False}, {"deployment_verified": 1},
