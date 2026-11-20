@@ -329,6 +329,20 @@ class LoopbackParser(unittest.TestCase):
         self.assertFalse(rec["kexinit_read"])
         self.assertEqual(check.evaluate(rec)["overall"], "unknown")
 
+    def test_empty_token_in_namelist_keeps_forbidden_name(self):
+        # F-SSH-5: a kex name-list "curve25519-sha256,,diffie-hellman-group1-sha1"
+        # (empty token) must not drop the forbidden name after it.
+        packet = build_kexinit(kex=["curve25519-sha256", "", "diffie-hellman-group1-sha1"],
+                               hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                               mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["kex"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
     def test_sends_client_kexinit_when_server_waits(self):
         # F-SSH-3: a server that withholds its KEXINIT until it reads the client's
         # must still be observed -- the observer sends its own KEXINIT.
