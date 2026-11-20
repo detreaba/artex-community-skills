@@ -344,6 +344,68 @@ class VerdictRules(unittest.TestCase):
         out = check.evaluate(rec)
         self.assertEqual(out["per_category"]["cipher"], "unknown")
 
+    def test_required_matches_exact_token_not_substring(self):
+        # F-SSH-15: required "hmac-sha2-256" against an offer of only
+        # "hmac-sha2-256-etm@openssh.com" -> gap. Membership is exact token
+        # equality, not prefix/suffix/substring. Offering the exact name -> pass.
+        pol = {"required": {"mac": ["hmac-sha2-256"]}}
+        etm = self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                        mac_s2c=["hmac-sha2-256-etm@openssh.com"])
+        etm["policy"] = pol
+        gap = check.evaluate(etm)
+        self.assertEqual(gap["per_category"]["mac"], "gap")
+        self.assertEqual(gap["overall"], "gap")
+        exact = self._rec(mac_c2s=["hmac-sha2-256"], mac_s2c=["hmac-sha2-256"])
+        exact["policy"] = pol
+        self.assertEqual(check.evaluate(exact)["per_category"]["mac"], "pass")
+
+    def test_algorithm_names_are_case_sensitive(self):
+        # RFC 4251 algorithm names are case-sensitive: an upper-cased offer does
+        # not satisfy a lower-case required name.
+        rec = self._rec(mac_c2s=["HMAC-SHA2-256"], mac_s2c=["HMAC-SHA2-256"])
+        rec["policy"] = {"required": {"mac": ["hmac-sha2-256"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["mac"], "gap")
+
+    def test_forbidden_matches_exact_token_not_substring(self):
+        # The forbidden dual of F-SSH-15: forbidding "hmac-sha2-256" does not
+        # match an offer of only "hmac-sha2-256-etm@openssh.com" -> pass.
+        rec = self._rec(mac_c2s=["hmac-sha2-256-etm@openssh.com"],
+                        mac_s2c=["hmac-sha2-256-etm@openssh.com"])
+        rec["policy"] = {"forbidden": {"mac": ["hmac-sha2-256"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["mac"], "pass")
+
+    def test_clean_direction_lacking_required_gaps_despite_malformed_sibling(self):
+        # A fully-parsed direction offering none of the required set is a gap even
+        # when the opposite direction is malformed -- malformed must not mask a
+        # definite required gap as unknown (guards the reorder of the malformed
+        # check after the required check).
+        out = check.evaluate(self._rec(encryption_c2s=["aes128-ctr"],
+                                       encryption_s2c=[["x"]]))
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_malformed_direction_does_not_assert_required_gap(self):
+        # When the clean direction meets required and only the other direction is
+        # malformed, the category is unknown (not gap): a malformed direction's
+        # full offer is unknown, so it cannot by itself assert a required failure.
+        out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],
+                                       encryption_s2c=[["x"]]))
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
+    def test_unknown_policy_subkey_is_unknown(self):
+        # A mistyped policy category ("ciphers" for "cipher") must not silently
+        # drop the rule: the whole verdict fails closed to unknown, not a pass.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"ciphers": ["3des-cbc"]}}
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+
+    def test_unknown_policy_top_key_is_unknown(self):
+        # A mistyped top-level policy key ("forbiden" for "forbidden") is unusable
+        # -> unknown, never a false pass.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbiden": {"cipher": ["3des-cbc"]}}
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")

@@ -53,37 +53,34 @@ def _category_verdict(record, category, forbidden, required):
     not captured, it reads unknown rather than pass."""
     if not record.get("kexinit_read"):
         return "unknown"
-    per_direction = []
-    incomplete = False
-    malformed = False
+    clean_directions = []  # directions whose every element was a string
+    seen = set()           # every string name offered across captured directions
+    incomplete = False     # a direction's name-list was absent from the record
+    malformed = False      # a captured name-list carried a non-string element
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
             incomplete = True
             continue
-        if not all(isinstance(v, str) for v in vals):
-            malformed = True  # a captured name-list carried a non-string element
-            per_direction.append(set(v for v in vals if isinstance(v, str)))
-            continue
-        per_direction.append(set(vals))
-    if not per_direction:
+        strings = [v for v in vals if isinstance(v, str)]
+        seen.update(strings)
+        if len(strings) == len(vals):
+            clean_directions.append(set(strings))
+        else:
+            malformed = True
+    if not seen and not clean_directions and not malformed:
         return "unknown"  # the category's name-list(s) were not captured at all
-    union = set().union(*per_direction)
-    # forbidden is a positive detection: a match in any captured direction is a gap,
-    # even when another direction was missing or malformed.
-    if union & forbidden:
+    # forbidden is a positive detection across every captured direction.
+    if seen & forbidden:
         return "gap"
-    # a captured name-list carried a non-string element -> malformed observation;
-    # cannot judge required or confirm a clean pass on it.
-    if malformed:
-        return "unknown"
-    # required is per direction: a captured direction offering none of the required
-    # set is a definite gap, even when the opposite direction was not captured.
-    if required and any(not (direction & required) for direction in per_direction):
+    # required is per direction: a fully-parsed direction offering none of the
+    # required set is a definite gap, even when another direction was missing or
+    # malformed. A malformed direction is not used to judge required -- its full
+    # offer is unknown -- so it cannot by itself assert a required gap.
+    if required and any(not (d & required) for d in clean_directions):
         return "gap"
-    # nothing forbidden and every captured direction met required, but a direction
-    # is missing -> cannot confirm a pass.
-    if incomplete:
+    # a malformed or missing direction means a clean pass cannot be confirmed.
+    if malformed or incomplete:
         return "unknown"
     return "pass"
 
@@ -101,6 +98,25 @@ def evaluate(record):
     policy = record.get("policy")
     if not isinstance(policy, dict):
         policy = {}
+
+    # A policy that names keys outside the schema was probably mistyped (e.g.
+    # "ciphers" for "cipher", or "forbiden" for "forbidden"); applying it would
+    # silently drop the operator's rule, so fail closed rather than read a false
+    # pass.
+    unknown_top = sorted(k for k in policy if k not in ("forbidden", "required"))
+    if unknown_top:
+        return {"overall": "unknown",
+                "reason": "policy names unknown keys: %s" % ", ".join(unknown_top),
+                "per_category": {}}
+    for _kind in ("forbidden", "required"):
+        _section = policy.get(_kind)
+        if isinstance(_section, dict):
+            _unknown = sorted(k for k in _section if k not in CATEGORIES)
+            if _unknown:
+                return {"overall": "unknown",
+                        "reason": "policy.%s names unknown categories: %s"
+                                  % (_kind, ", ".join(_unknown)),
+                        "per_category": {}}
 
     per_category = {}
     for cat in CATEGORIES:

@@ -88,6 +88,11 @@ directions independently, so:
   malformed → `unknown` (a forbidden algorithm positively seen among the valid
   names still decides `gap`).
 
+Matching is **exact token equality** and case-sensitive (RFC 4251 §6): a policy
+name matches an offered name only when the whole tokens are identical, never by
+prefix, suffix or substring. `hmac-sha2-256` and `hmac-sha2-256-etm@openssh.com`
+are distinct names.
+
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.
 
