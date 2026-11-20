@@ -77,6 +77,10 @@ def _debug_packet():
     return _packet(b"\x04\x00" + struct.pack(">I", 0) + struct.pack(">I", 0))  # SSH_MSG_DEBUG
 
 
+def _big_ignore(size=34000):
+    return _packet(b"\x02" + struct.pack(">I", size) + b"\x00" * size)  # large SSH_MSG_IGNORE
+
+
 class Fixture:
     """A one-shot loopback SSH-ish listener: sends a banner, then (optionally) a
     KEXINIT packet, then closes."""
@@ -303,6 +307,27 @@ class LoopbackParser(unittest.TestCase):
         out = check.evaluate(rec)
         self.assertEqual(out["per_category"]["kex"], "gap")
         self.assertEqual(out["overall"], "gap")
+
+    def test_skips_many_ignore_packets_before_kexinit(self):
+        # F-SSH-4: there is no count cap on SSH_MSG_IGNORE; a dozen of them before
+        # KEXINIT must still be skipped and the real offer read.
+        packet = (_ignore_packet() * 12) + build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_ignore_flood_beyond_byte_cap_is_unknown(self):
+        # The byte budget bounds a DoS flood: large IGNORE packets exceeding the
+        # cap with no KEXINIT yield a bounded unknown, not a hang.
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", _big_ignore() * 9) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertFalse(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
 
     def test_sends_client_kexinit_when_server_waits(self):
         # F-SSH-3: a server that withholds its KEXINIT until it reads the client's

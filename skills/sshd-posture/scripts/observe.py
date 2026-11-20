@@ -32,7 +32,7 @@ TIMEOUT = 5
 MAX_BANNER_BYTES = 8192
 MAX_BANNER_LINES = 64
 MAX_PACKET = 35000  # RFC 4253 section 6.1 maximum uncompressed packet size
-MAX_PRE_KEXINIT_PACKETS = 8  # IGNORE/DEBUG/UNIMPLEMENTED packets skipped before KEXINIT
+MAX_PREKEX_BYTES = 262144  # cumulative pre-KEXINIT bytes to tolerate before giving up
 SSH_MSG_KEXINIT = 20
 CLIENT_IDENT = b"SSH-2.0-artex-sshd-posture-observer\r\n"
 
@@ -192,11 +192,13 @@ def observe(req):
                 buf.extend(chunk)
 
         # SSH_MSG_IGNORE (2), SSH_MSG_UNIMPLEMENTED (3) and SSH_MSG_DEBUG (4) may
-        # arrive before KEXINIT (RFC 4253 section 11); skip them, bounded by the
-        # packet budget, until KEXINIT (20), a disconnect (1), or an unexpected
-        # message.
+        # arrive before KEXINIT (RFC 4253 section 11) with no count limit; skip
+        # any number of them -- bounded by cumulative bytes, not a packet count --
+        # until KEXINIT (20), a disconnect (1), or an unexpected message.
         try:
-            for _ in range(MAX_PRE_KEXINIT_PACKETS + 1):
+            consumed = 0
+            skipped = 0
+            while True:
                 need(4)
                 (pkt_len,) = struct.unpack(">I", bytes(buf[:4]))
                 if pkt_len < 2 or pkt_len > MAX_PACKET:
@@ -205,6 +207,7 @@ def observe(req):
                 need(4 + pkt_len)
                 body = bytes(buf[4:4 + pkt_len])
                 del buf[:4 + pkt_len]
+                consumed += 4 + pkt_len
                 pad_len = body[0]
                 payload_len = pkt_len - pad_len - 1
                 if payload_len < 1:
@@ -225,17 +228,20 @@ def observe(req):
                         off += length
                         record[name] = [x for x in text.split(",") if x] if text else []
                     record["kexinit_read"] = True
+                    if skipped:
+                        record["notes"].append("skipped %d pre-KEXINIT transport message(s)" % skipped)
                     return record
                 if msg == 1:  # SSH_MSG_DISCONNECT
                     record["notes"].append("server disconnected before KEXINIT (msg 1)")
                     return record
-                if msg in (2, 3, 4):  # IGNORE, UNIMPLEMENTED, DEBUG
-                    record["notes"].append("skipped pre-KEXINIT transport message (msg %d)" % msg)
+                if msg in (2, 3, 4):  # IGNORE, UNIMPLEMENTED, DEBUG -- skip any number
+                    skipped += 1
+                    if consumed > MAX_PREKEX_BYTES:
+                        record["notes"].append("KEXINIT not seen within %d bytes of pre-KEXINIT traffic" % MAX_PREKEX_BYTES)
+                        return record
                     continue
                 record["notes"].append("unexpected message before KEXINIT (msg %d)" % msg)
                 return record
-            record["notes"].append("KEXINIT not seen within the pre-KEXINIT packet budget")
-            return record
         except (EOFError, ValueError, struct.error) as exc:
             record["notes"].append("could not read/parse transport packets: %s" % exc)
             return record

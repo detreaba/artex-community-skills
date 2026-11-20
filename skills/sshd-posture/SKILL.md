@@ -39,11 +39,12 @@ Reads one JSON request on stdin and prints an observation record:
   transport offer that elicits the server's KEXINIT even from a server that waits
   to read the client's first. It never sends `SSH_MSG_NEWKEYS`, completes key
   exchange, authenticates, opens a channel, or sends application data.
-- It reads binary transport packets, skipping any `SSH_MSG_IGNORE` / `DEBUG` /
-  `UNIMPLEMENTED` that precede key exchange (bounded to a small packet budget),
-  until the server's `SSH_MSG_KEXINIT` (each `packet_length` capped at the RFC
-  maximum of 35000 B), and parses the ten name-lists (kex, host-key, enc c2s/s2c,
-  mac c2s/s2c, compression, languages).
+- It reads binary transport packets, skipping any number of `SSH_MSG_IGNORE` /
+  `DEBUG` / `UNIMPLEMENTED` that precede key exchange (RFC 4253 §11 sets no count
+  limit; bounded instead by a cumulative byte budget and the read timeout), until
+  the server's `SSH_MSG_KEXINIT` (each `packet_length` capped at the RFC maximum
+  of 35000 B), and parses the ten name-lists (kex, host-key, enc c2s/s2c, mac
+  c2s/s2c, compression, languages).
 - It then closes. It **never** authenticates, completes key exchange, opens a
   channel, or sends application data, and carries no exploit payload.
 
