@@ -124,6 +124,16 @@ class TomcatTests(unittest.TestCase):
         req["inventory"]["bundle_symbolic_name"] = CATALINA
         self.assert_unknown(req)
 
+    def test_legacy_digest_is_pinned_to_the_exact_coordinate(self):
+        req = json.loads((ROOT / "examples/CVE-2025-24813.json").read_bytes())
+        proof = req["inventory"]["maven_provenance"]
+        for digest in ("a" * 64, "d4d8097f87a4dcd7560e01c1878b8a0aaf365b2c9477674a10f62df83f1aa53e"):
+            proof.update(loaded_sha256=digest, published_sha256=digest.upper())
+            self.assert_unknown(req)
+        proof["coordinate"] = "org.apache.tomcat.embed:tomcat-embed-core:8.5.100"
+        row = self.result(req)
+        self.assertEqual((row["patch_status"], row["first_fixed_on_branch"]), ("affected_version", None))
+
     def test_default_servlet_excluded_versions_and_wrong_classes(self):
         for version in ("8.5.0", "8.5.2", "9.0.1", "9.0.2", "9.0.0.M1", "9.0.103", "10.0.27", "10.1.38",
                         "11.0.19", "9.0.125", "10.1.63", "11.0.30"):
@@ -163,15 +173,25 @@ class TomcatTests(unittest.TestCase):
 
     def test_named_tribes_class_first_shipped_in_9_0_13(self):
         sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+        first_jar = "4da2248cb7efd4ce206037d4a69a79f58031f74347a54ef31ebdfb186693a4b0"
         for v in ("9.0.12", "9.0.13"):
             sample["inventory"].update(implementation_version=v, upstream_version=v,
                                        bundle_symbolic_name="TOMCAT_" + v.replace(".", "_"),
                                        maven_provenance={"coordinate": "org.apache.tomcat:tomcat-tribes:" + v,
-                                                         "ref": "artifact-comparison", "loaded_sha256": "a" * 64,
-                                                         "published_sha256": "a" * 64})
+                                                         "ref": "artifact-comparison", "loaded_sha256": first_jar,
+                                                         "published_sha256": first_jar.upper()})
             row = self.result(sample)
             self.assertEqual(row["patch_status"], "unknown" if v == "9.0.12" else "outside_affected_range")
             self.assertIsNone(row["first_fixed_on_branch"])
+
+    def test_generic_tribes_label_does_not_clear_copied_digests(self):
+        for v, symbol in (("9.0.20", "TOMCAT_9_0_20"), ("9.0.91", None), ("10.1.26", None)):
+            req = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+            req["inventory"].update(implementation_version=v, upstream_version=v, bundle_symbolic_name=symbol,
+                                    maven_provenance={"coordinate": "org.apache.tomcat:tomcat-tribes:" + v,
+                                                      "ref": "artifact-compare", "loaded_sha256": "a" * 64,
+                                                      "published_sha256": "a" * 64})
+            self.assert_unknown(req)
 
     def test_malformed_input_returns_one_json_error(self):
         for raw in (b"not json", b"\xff", b"{}", b"[]", b'{"advisory":null,"advisory":"CVE-2026-103119"}',
