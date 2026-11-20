@@ -2,18 +2,54 @@
 import json
 import re
 import sys
+from typing import NamedTuple
 
 
-ADVISORY = "CVE-2026-103119"
-BULLETIN = "https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.27"
-ARCHIVE = "https://archive.apache.org/dist/tomcat/tomcat-11/"
-REVIEWED = "2026-11-19"
-CLASS_NAME = "org.apache.catalina.connector.OutputBuffer"
-BUNDLES = ("org.apache.tomcat-catalina", "org.apache.tomcat-embed-core")
-# Published stable artifacts in the Apache 11.0 archive at review time.
-AFFECTED = {f"11.0.{patch}" for patch in range(27) if patch not in (16, 17, 19)}
-FIRST_FIXED = "11.0.27"
-FIXED = (FIRST_FIXED, "11.0.29")
+CONNECTOR = "CVE-2026-103119"
+DEFAULT_SERVLET = "CVE-2025-24813"
+CATALINA_BUNDLES = ("org.apache.tomcat-catalina", "org.apache.tomcat-embed-core")
+COORDINATES = {
+    "org.apache.tomcat-catalina": "org.apache.tomcat:tomcat-catalina",
+    "org.apache.tomcat-embed-core": "org.apache.tomcat.embed:tomcat-embed-core",
+}
+ARCHIVE = "https://archive.apache.org/dist/tomcat/"
+
+
+class Profile(NamedTuple):
+    class_name: str
+    bundles: tuple
+    first_fix: dict
+    sources: tuple
+    reviewed: str
+
+
+PROFILES = {
+    CONNECTOR: Profile(
+        "org.apache.catalina.connector.OutputBuffer", CATALINA_BUNDLES, {"11.0": 27},
+        ("https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.27", ARCHIVE + "tomcat-11/"),
+        "2026-11-19"),
+    DEFAULT_SERVLET: Profile(
+        "org.apache.catalina.servlets.DefaultServlet", CATALINA_BUNDLES,
+        {"8.5": None, "9.0": 99, "10.1": 35, "11.0": 3},
+        ("https://www.cve.org/CVERecord?id=CVE-2025-24813",
+         "https://tomcat.apache.org/security-9.html#Fixed_in_Apache_Tomcat_9.0.99",
+         "https://tomcat.apache.org/security-10.html#Fixed_in_Apache_Tomcat_10.1.35",
+         "https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.3", ARCHIVE), "2026-11-20"),
+}
+
+# Numeric versions present in both Apache's release archive and Maven Central on 2026-11-20.
+# The upper bound and unpublished patch numbers belong to each individual release line.
+PUBLISHED = {
+    "8.5": (100, (1, 7, 10, 17, 18, 22, 25, 26, 36, 44, 48, 52, 62, 67, 74, 80)),
+    "9.0": (124, (0, 3, 9, 15, 18, 23, 25, 28, 32, 42, 47, 49, 51, 57, 61, 66, 77, 92, 101, 103, 114)),
+    "10.1": (62, (3, 21, 22, 27, 32, 37, 38, 51, 58)),
+    "11.0": (29, (16, 17, 19, 28)),
+}
+# Apache announced four plain-numbered builds as betas.
+BETA = {"8.5.0", "8.5.2", "9.0.1", "9.0.2"}
+RELEASES = {f"{line}.{patch}": (line, patch) for line, (last, gaps) in PUBLISHED.items()
+            for patch in range(last + 1) if patch not in gaps and f"{line}.{patch}" not in BETA}
+SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 ALIAS = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,127}")
 LIMIT = 16_384
 
@@ -28,44 +64,79 @@ def fields(record, allowed):
     return record
 
 
-def classify(record, scope, ref):
+def artifact_matches(record, profile, version, line, patch, provenance):
+    symbol = record.get("bundle_symbolic_name")
+    candidates = profile.bundles
+    if provenance is not None:
+        loaded, published = provenance.get("loaded_sha256"), provenance.get("published_sha256")
+        if not (alias(provenance.get("ref")) and isinstance(loaded, str) and SHA256.fullmatch(loaded)
+                and isinstance(published, str) and loaded.lower() == published.lower()):
+            return False
+        candidates = tuple(bundle for bundle in candidates
+                           if provenance.get("coordinate") == f"{COORDINATES[bundle]}:{version}")
+    # These releases either omit the header or share a generic value across different JARs.
+    if line == "8.5" or (line == "9.0" and patch <= 22) or version in ("9.0.91", "10.1.26"):
+        legacy_symbol = f"TOMCAT_9_0_{patch}" if line == "9.0" and 10 <= patch <= 22 else None
+        return bool(candidates) and provenance is not None and symbol == legacy_symbol
+    return symbol in candidates
+
+
+def evidence_problem(record, scope, ref, profile, provenance):
     if not all(scope.values()) or not ref or record.get("deployment_verified") is not True:
-        return "unknown", "A referenced inventory tied to this build and running JVM is required."
-    if record.get("source") != "serving_class_manifest" or record.get("class_name") != CLASS_NAME:
-        return "unknown", "Identify the loaded Catalina OutputBuffer class and the manifest of its defining artifact."
-    if record.get("bundle_symbolic_name") not in BUNDLES:
-        return "unknown", "The loaded artifact must identify the Apache Catalina or embedded-core bundle."
+        return "A referenced inventory tied to this build and running JVM is required."
+    if record.get("source") != "serving_class_manifest" or record.get("class_name") != profile.class_name:
+        return f"Identify the loaded {profile.class_name} class and the manifest of its defining artifact."
     if record.get("origin") != "upstream":
-        return "unknown", "The origin is unverified or requires its distributor's patch decision."
+        return "The origin is unverified or requires its distributor's patch decision."
     version = record.get("implementation_version")
-    if not isinstance(version, str) or not version or not record.get("upstream_version"):
-        return "unknown", "Supply the loaded manifest version and the upstream release identified by provenance."
-    if record["upstream_version"] != version:
-        return "unknown", "The manifest and release provenance disagree. Reconcile the artifacts for this JVM."
-    if version in AFFECTED:
-        return "affected_version", "The loaded artifact is a published stable release inside Apache's affected range."
-    if version in FIXED:
-        return "vendor_fix_present", "The loaded upstream artifact includes this advisory's fix."
-    return "unknown", "This version is outside the published stable Tomcat 11.0 releases in this review."
+    if not isinstance(version, str) or record.get("upstream_version") != version:
+        return "Reconcile the loaded manifest and the upstream release attributed to these bytes."
+    if version not in RELEASES or RELEASES[version][0] not in profile.first_fix:
+        return "This version is outside the published stable releases covered for this advisory."
+    line, patch = RELEASES[version]
+    if not artifact_matches(record, profile, version, line, patch, provenance):
+        return "Identify the defining upstream artifact. Older or generic manifests need matching Maven provenance."
+    return None
+
+
+def release_decision(profile, line, patch):
+    fix = profile.first_fix[line]
+    if fix is None:
+        return "affected_version", "Apache lists this release as affected and has no upstream fix on this line.", None
+    first = f"{line}.{fix}"
+    if patch < fix:
+        return "affected_version", "The loaded artifact is a published stable release inside Apache's affected range.", first
+    return "vendor_fix_present", "The loaded upstream artifact includes this advisory's fix.", first
 
 
 def review(request):
     fields(request, {"advisory", "inventory"})
-    if request.get("advisory") != ADVISORY:
+    advisory = request.get("advisory")
+    if not isinstance(advisory, str) or advisory not in PROFILES:
         raise ValueError("Unsupported advisory.")
-    record = fields(request.get("inventory", {}), {
-        "asset", "build", "instance", "ref", "deployment_verified", "source", "class_name",
-        "bundle_symbolic_name", "implementation_version", "origin", "upstream_version",
-    })
+    profile = PROFILES[advisory]
+    allowed = {"asset", "build", "instance", "ref", "deployment_verified", "source", "class_name",
+               "bundle_symbolic_name", "implementation_version", "origin", "upstream_version"}
+    if advisory != CONNECTOR:
+        allowed.add("maven_provenance")
+    record = fields(request.get("inventory", {}), allowed)
+    provenance = None
+    if "maven_provenance" in record:
+        provenance = fields(record["maven_provenance"], {"ref", "coordinate", "loaded_sha256", "published_sha256"})
     scope = {key: alias(record.get(key)) for key in ("asset", "build", "instance")}
-    ref = alias(record.get("ref"))
-    status, reason = classify(record, scope, ref)
+    refs = {"inventory": alias(record.get("ref"))}
+    if provenance is not None:
+        refs["maven_provenance"] = alias(provenance.get("ref"))
+    reason = evidence_problem(record, scope, refs["inventory"], profile, provenance)
+    status, first, observed = "unknown", None, None
+    if reason is None:
+        observed = record["implementation_version"]
+        status, reason, first = release_decision(profile, *RELEASES[observed])
     return {
-        "advisory": ADVISORY, "product": "Apache Tomcat", "scope": scope, "evidence_refs": {"inventory": ref},
-        "observed_version": record.get("implementation_version") if status != "unknown" else None,
-        "patch_status": status, "patch_reason": reason,
-        "first_fixed_on_branch": FIRST_FIXED if status != "unknown" else None,
-        "applicability": "unknown", "reviewed": REVIEWED, "sources": [BULLETIN, ARCHIVE],
+        "advisory": advisory, "product": "Apache Tomcat", "scope": scope, "evidence_refs": refs,
+        "observed_version": observed, "patch_status": status, "patch_reason": reason,
+        "first_fixed_on_branch": first, "applicability": "unknown",
+        "reviewed": profile.reviewed, "sources": list(profile.sources),
     }
 
 
