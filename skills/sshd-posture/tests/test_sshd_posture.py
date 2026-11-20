@@ -399,6 +399,36 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(rec["software"], "OpenSSH_9.6")
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
 
+    def test_pre_banner_line_containing_ssh_substring_is_not_identification(self):
+        # F-SSH-9: a pre-banner line that merely CONTAINS "SSH-" after other text
+        # ("Note: SSH-2.0-decoy") must be discarded; the identification is the next
+        # line that BEGINS with "SSH-".
+        banner = b"Note: SSH-2.0-decoy\r\nSSH-2.0-OpenSSH_9.6\r\n"
+        kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                mac=["hmac-sha2-256"])
+        with Fixture(banner, kexinit, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(rec["software"], "OpenSSH_9.6")
+        self.assertNotIn("decoy", rec.get("banner") or "")
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_identification_comment_field_is_dropped_from_software(self):
+        # RFC 4253 4.2: "SSH-protoversion-softwareversion SP comments". The comment
+        # must not become part of software, and the KEXINIT leftover is taken after
+        # the line terminator, not after the space.
+        banner = b"SSH-2.0-OpenSSH_9.6 a friendly comment\r\n"
+        kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                mac=["hmac-sha2-256"])
+        with Fixture(banner, kexinit, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(rec["software"], "OpenSSH_9.6")
+        self.assertEqual(rec["protocol"], "2.0")
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
     def test_many_pre_banner_lines_then_identification(self):
         # F-SSH-7: 80 valid CRLF pre-banner lines (~9.9 KB, over the old 64-line /
         # 8 KiB cap), then the SSH- identification and a KEXINIT on the same send ->
