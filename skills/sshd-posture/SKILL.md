@@ -36,9 +36,11 @@ Reads one JSON request on stdin and prints an observation record:
 - It reads the server's identification line(s) (RFC 4253 §4.2; at most 64 lines /
   8 KiB), then sends **one** client identification line
   (`SSH-2.0-artex-sshd-posture-observer`) — the only bytes it ever sends.
-- It reads one binary transport packet, expecting the server's `SSH_MSG_KEXINIT`
-  (`packet_length` capped at the RFC maximum of 35000 B), and parses the ten
-  name-lists (kex, host-key, enc c2s/s2c, mac c2s/s2c, compression, languages).
+- It reads binary transport packets, skipping any `SSH_MSG_IGNORE` / `DEBUG` /
+  `UNIMPLEMENTED` that precede key exchange (bounded to a small packet budget),
+  until the server's `SSH_MSG_KEXINIT` (each `packet_length` capped at the RFC
+  maximum of 35000 B), and parses the ten name-lists (kex, host-key, enc c2s/s2c,
+  mac c2s/s2c, compression, languages).
 - It then closes. It **never** authenticates, completes key exchange, opens a
   channel, or sends application data, and carries no exploit payload.
 
@@ -64,14 +66,15 @@ the policy names a `forbidden` or `required` set for it):
 - otherwise `pass`;
 - a category the observation did not capture (no KEXINIT read) → `unknown`.
 
-Plus a `protocol` category (always evaluated): SSH `1.x` — including the `1.99`
-back-compatibility banner — is a `gap`; `2.0` is a `pass`; an unread banner is
-`unknown`. Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown`.
-Malformed input fails closed to `unknown`.
+Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
+policy with nothing to check). Malformed input fails closed to `unknown`.
 
-**The software version is advisory, never a verdict.** A device can lie about
-its version string, so the verdict rests on the *offered* algorithms and the
-protocol version; the banner and software are recorded as a note only.
+**The identification string is advisory, never a verdict.** Both the software
+name and the SSH protocol token (`SSH-2.0` / `SSH-1.99` / …) are self-reported and
+can be forged, so the verdict rests only on the *offered* algorithms; the banner,
+software and protocol are recorded as a note. An `SSH-1.x` / `1.99` token is
+surfaced as an advisory note — confirming SSH-1 support would require an SSH-1
+handshake, which this check does not perform.
 
 ## Limits
 

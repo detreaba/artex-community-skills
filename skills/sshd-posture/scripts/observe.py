@@ -30,6 +30,7 @@ TIMEOUT = 5
 MAX_BANNER_BYTES = 8192
 MAX_BANNER_LINES = 64
 MAX_PACKET = 35000  # RFC 4253 section 6.1 maximum uncompressed packet size
+MAX_PRE_KEXINIT_PACKETS = 8  # IGNORE/DEBUG/UNIMPLEMENTED packets skipped before KEXINIT
 SSH_MSG_KEXINIT = 20
 CLIENT_IDENT = b"SSH-2.0-artex-sshd-posture-observer\r\n"
 
@@ -159,39 +160,54 @@ def observe(req):
                     raise EOFError("connection closed before %d bytes" % n)
                 buf.extend(chunk)
 
+        # SSH_MSG_IGNORE (2), SSH_MSG_UNIMPLEMENTED (3) and SSH_MSG_DEBUG (4) may
+        # arrive before KEXINIT (RFC 4253 section 11); skip them, bounded by the
+        # packet budget, until KEXINIT (20), a disconnect (1), or an unexpected
+        # message.
         try:
-            need(4)
-            (pkt_len,) = struct.unpack(">I", bytes(buf[:4]))
-            if pkt_len < 2 or pkt_len > MAX_PACKET:
-                record["notes"].append("kexinit packet length out of bounds: %d" % pkt_len)
+            for _ in range(MAX_PRE_KEXINIT_PACKETS + 1):
+                need(4)
+                (pkt_len,) = struct.unpack(">I", bytes(buf[:4]))
+                if pkt_len < 2 or pkt_len > MAX_PACKET:
+                    record["notes"].append("transport packet length out of bounds: %d" % pkt_len)
+                    return record
+                need(4 + pkt_len)
+                body = bytes(buf[4:4 + pkt_len])
+                del buf[:4 + pkt_len]
+                pad_len = body[0]
+                payload_len = pkt_len - pad_len - 1
+                if payload_len < 1:
+                    record["notes"].append("transport packet padding out of bounds: %d" % pad_len)
+                    return record
+                payload = body[1:1 + payload_len]
+                msg = payload[0]
+                if msg == SSH_MSG_KEXINIT:
+                    off = 1 + 16  # message code + 16-byte cookie
+                    for name in NAME_LISTS:
+                        if off + 4 > len(payload):
+                            raise ValueError("truncated name-list length")
+                        (length,) = struct.unpack_from(">I", payload, off)
+                        off += 4
+                        if off + length > len(payload):
+                            raise ValueError("truncated name-list body")
+                        text = payload[off:off + length].decode("ascii", "replace")
+                        off += length
+                        record[name] = [x for x in text.split(",") if x] if text else []
+                    record["kexinit_read"] = True
+                    return record
+                if msg == 1:  # SSH_MSG_DISCONNECT
+                    record["notes"].append("server disconnected before KEXINIT (msg 1)")
+                    return record
+                if msg in (2, 3, 4):  # IGNORE, UNIMPLEMENTED, DEBUG
+                    record["notes"].append("skipped pre-KEXINIT transport message (msg %d)" % msg)
+                    continue
+                record["notes"].append("unexpected message before KEXINIT (msg %d)" % msg)
                 return record
-            need(4 + pkt_len)
-            body = bytes(buf[4:4 + pkt_len])
-            pad_len = body[0]
-            payload_len = pkt_len - pad_len - 1
-            if payload_len < 1:
-                record["notes"].append("kexinit padding length out of bounds: %d" % pad_len)
-                return record
-            payload = body[1:1 + payload_len]
-            if payload[0] != SSH_MSG_KEXINIT:
-                record["notes"].append("first packet was not KEXINIT (msg %d)" % payload[0])
-                return record
-            off = 1 + 16  # message code + 16-byte cookie
-            for name in NAME_LISTS:
-                if off + 4 > len(payload):
-                    raise ValueError("truncated name-list length")
-                (length,) = struct.unpack_from(">I", payload, off)
-                off += 4
-                if off + length > len(payload):
-                    raise ValueError("truncated name-list body")
-                text = payload[off:off + length].decode("ascii", "replace")
-                off += length
-                record[name] = [x for x in text.split(",") if x] if text else []
-            record["kexinit_read"] = True
-        except (EOFError, ValueError, struct.error) as exc:
-            record["notes"].append("could not read/parse KEXINIT: %s" % exc)
+            record["notes"].append("KEXINIT not seen within the pre-KEXINIT packet budget")
             return record
-        return record
+        except (EOFError, ValueError, struct.error) as exc:
+            record["notes"].append("could not read/parse transport packets: %s" % exc)
+            return record
     except (socket.timeout, TimeoutError):
         record["notes"].append("timeout")
         return record

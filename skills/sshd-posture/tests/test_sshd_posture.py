@@ -49,6 +49,15 @@ def _namelist(text):
     return struct.pack(">I", len(text)) + text.encode("ascii")
 
 
+def _packet(payload):
+    """Wrap a payload in a binary transport packet with valid padding."""
+    base = 4 + 1 + len(payload)
+    pad = 8 - (base % 8)
+    if pad < 4:
+        pad += 8
+    return struct.pack(">I", 1 + len(payload) + pad) + bytes([pad]) + payload + b"\x00" * pad
+
+
 def build_kexinit(kex, hostkey, enc, mac, comp=("none",)):
     """Build a well-formed SSH_MSG_KEXINIT binary packet (RFC 4253)."""
     parts = [",".join(kex), ",".join(hostkey), ",".join(enc), ",".join(enc),
@@ -57,11 +66,15 @@ def build_kexinit(kex, hostkey, enc, mac, comp=("none",)):
     for text in parts:
         payload += _namelist(text)
     payload += b"\x00" + struct.pack(">I", 0)  # first_kex_packet_follows, reserved
-    base = 4 + 1 + len(payload)
-    pad = 8 - (base % 8)
-    if pad < 4:
-        pad += 8
-    return struct.pack(">I", 1 + len(payload) + pad) + bytes([pad]) + payload + b"\x00" * pad
+    return _packet(payload)
+
+
+def _ignore_packet():
+    return _packet(b"\x02" + struct.pack(">I", 0))  # SSH_MSG_IGNORE, empty string
+
+
+def _debug_packet():
+    return _packet(b"\x04\x00" + struct.pack(">I", 0) + struct.pack(">I", 0))  # SSH_MSG_DEBUG
 
 
 class Fixture:
@@ -152,9 +165,14 @@ class VerdictRules(unittest.TestCase):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")
 
-    def test_protocol_v1_is_gap(self):
-        self.assertEqual(check.evaluate(self._rec(protocol="1.99"))["per_category"]["protocol"], "gap")
-        self.assertEqual(check.evaluate(self._rec(protocol="1.5"))["per_category"]["protocol"], "gap")
+    def test_protocol_v1_is_advisory_not_gap(self):
+        # F-SSH-1: the banner's protocol token is self-reported, so it is advisory
+        # (a note), not a verdict. A clean algorithm offer with an SSH-1.99 banner
+        # still passes, and no "protocol" category is emitted.
+        out = check.evaluate(self._rec(protocol="1.99"))
+        self.assertEqual(out["overall"], "pass")
+        self.assertNotIn("protocol", out["per_category"])
+        self.assertTrue(any("1.99" in n for n in out["notes"]))
 
     def test_no_kexinit_is_unknown(self):
         out = check.evaluate(self._rec(kexinit_read=False))
@@ -232,6 +250,21 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(out["overall"], "gap")
         self.assertEqual(out["per_category"]["kex"], "gap")
         self.assertEqual(out["per_category"]["cipher"], "gap")
+
+    def test_skips_ignore_and_debug_before_kexinit(self):
+        # F-SSH-2: a server may send SSH_MSG_IGNORE / DEBUG before KEXINIT; the
+        # observer must skip them and still read the real (here, weak) offer.
+        packet = _ignore_packet() + _debug_packet() + build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["kex"], "gap")
+        self.assertEqual(out["overall"], "gap")
 
     def test_banner_only_then_close_is_unknown(self):
         with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", b"", send_packet=False) as fx:

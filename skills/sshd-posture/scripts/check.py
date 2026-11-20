@@ -5,10 +5,11 @@ Reads a saved observation record (produced by ``observe.py``) on stdin and
 emits, per category and overall, one of ``gap`` / ``pass`` / ``unknown``.
 Standard library only; Python 3.9+. It never opens a socket.
 
-The verdict rests on the algorithms the server *offered* in its KEXINIT and on
-the SSH protocol version. The software/version string is self-reported, so it is
-recorded as advisory only and never drives a verdict. Everything fails closed to
-``unknown``, including malformed input.
+The verdict rests only on the algorithms the server *offered* in its KEXINIT.
+The identification string -- both the software name and the SSH protocol token --
+is self-reported and can be forged, so it is recorded as advisory only and never
+drives a verdict (confirming SSH-1 support would need an SSH-1 handshake, which
+this check does not perform). Everything fails closed to ``unknown``.
 """
 import json
 import sys
@@ -64,15 +65,6 @@ def _category_verdict(offered, forbidden, required):
     return "pass"
 
 
-def _protocol_verdict(record):
-    proto = record.get("protocol")
-    if not isinstance(proto, str) or not proto:
-        return "unknown"
-    # SSH protocol 1.x -- including the "1.99" back-compatibility banner -- is
-    # deprecated and a gap. Only "2.0" is a pass.
-    return "gap" if proto.startswith("1") else "pass"
-
-
 def evaluate(record):
     if not isinstance(record, dict):
         return {"overall": "unknown",
@@ -97,8 +89,6 @@ def evaluate(record):
         if not forbidden and not required:
             continue  # the operator expressed no policy for this category
         per_category[cat] = _category_verdict(_offered(record, cat), forbidden, required)
-    # SSH protocol version is always evaluated; v1 is universally deprecated.
-    per_category["protocol"] = _protocol_verdict(record)
 
     verdicts = list(per_category.values())
     if not verdicts:
@@ -110,21 +100,28 @@ def evaluate(record):
     else:
         overall = "unknown"
 
+    notes = [
+        "Offered algorithms only -- not what a specific client negotiates, nor "
+        "sshd_config beyond what the offer reveals, nor auth policy.",
+        "The identification string (software and protocol token) is self-reported "
+        "and advisory; the verdict rests on the offered algorithms.",
+        "A category the observation did not capture reads unknown.",
+    ]
+    proto = record.get("protocol")
+    if isinstance(proto, str) and proto.startswith("1"):
+        notes.append("advisory: the identification string declares SSH protocol "
+                     "%s; SSH-1 support is not confirmed here (it would need an "
+                     "SSH-1 handshake, which this check does not perform)." % proto)
+
     return {
         "overall": overall,
         "per_category": per_category,
+        "protocol": proto,
         "software": record.get("software"),
         "banner": record.get("banner"),
         "target": record.get("target"),
         "authorization_ref": record.get("authorization_ref"),
-        "limits": [
-            "Offered algorithms only -- not what a specific client negotiates, "
-            "nor sshd_config beyond what the offer reveals, nor auth policy.",
-            "The software/version string is self-reported and advisory; the "
-            "verdict rests on the offered algorithms and the protocol version.",
-            "Observed at one address and time; a category the observation did "
-            "not capture reads unknown.",
-        ],
+        "notes": notes,
     }
 
 
