@@ -82,8 +82,8 @@ class FrameworkTests(unittest.TestCase):
         for versions, verdict, first_fix in (
             (("v3.0.0-beta.1", "3.0.0-beta.11", "3.0.0", "3.6.2", "3.6.3"), "affected_version", "3.6.4"),
             (("v3.6.4", "3.7.0"), "vendor_fix_present", "3.6.4"),
-            (("0.0.1", "1.0.0", "2.12.8", "v4.0.0"), "outside_affected_range", None),
-            (("3.0.0-beta.12", "3.7.0-beta.1", "3.6.5", "2.99.0", "5.0.0", "^3.6.4"), "unknown", None),
+            (("0.0.1", "1.0.0", "2.12.8"), "outside_affected_range", None),
+            (("3.0.0-beta.12", "3.7.0-beta.1", "3.6.5", "2.99.0", "v4.0.0", "4.4.8", "5.0.0", "^3.6.4"), "unknown", None),
         ):
             for version in versions:
                 with self.subTest(version=version):

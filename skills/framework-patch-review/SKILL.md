@@ -47,7 +47,7 @@ Run `python3 scripts/check.py < examples/CVE-2025-54068.json`. The example ties 
 
 Set `livewire_component_mounted` to `false` only when a same-build review covers every application in scope and rules out all mounts. A check of one route, tenant or application leaves the condition unknown for the rest. A verified mount alone also leaves applicability unknown because the publisher did not identify the additional configuration.
 
-The offline release list was checked on 20 November 2026. It covers published three-part stable tags on the 0.x through 4.x lines and the eleven published 3.0.0 betas. Stable releases on the reviewed non-v3 lines fall outside this v3 advisory. For an unlisted tag, a Composer constraint, or a modified or distributor build, report patch status as `unknown` and obtain a current release or backport record. [Packagist release index](https://repo.packagist.org/p2/livewire/livewire.json)
+The offline release list was checked on 20 November 2026. Published stable releases on the 0.x, 1.x and 2.x lines fall outside the advisory. The checker evaluates published stable v3 releases and the eleven published 3.0.0 betas. The publisher’s advisory predates v4 and provides no patch determination for that line. Report a v4 release as `unknown` with no first fix. For an unlisted tag, a Composer constraint, or a modified or distributor build, report patch status as `unknown` and obtain a current release or backport record. [Packagist release index](https://repo.packagist.org/p2/livewire/livewire.json)
 
 ## Reproduce the Drupal release comparison
 

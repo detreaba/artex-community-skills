@@ -20,7 +20,6 @@ LIVEWIRE_LAST_PATCH = {
     1: (14, 0, 0, 9),
     2: (4, 4, 9, 18, 4, 5, 7, 2, 2, 0, 8, 3, 8),
     3: (10, 0, 6, 5, 12, 20, 4, 15, 11),
-    4: (3, 4, 4, 5, 8),
 }
 LIVEWIRE_AFFECTED_BETAS = {f"3.0.0-beta.{n}" for n in range(1, 12)}
 
@@ -49,7 +48,7 @@ ADVISORIES = {
         "ecosystem": "composer", "package": "livewire/livewire", "published": "2025-07-17",
         "reviewed": "2026-11-20",
         "windows": tuple((start, (3, 6, 4), end) for start, end in livewire_tag_ranges((3,))),
-        "outside": tuple(livewire_tag_ranges((0, 1, 2, 4))),
+        "outside": tuple(livewire_tag_ranges((0, 1, 2))),
         "conditions": ("livewire_component_mounted",),
         "additional_configuration_undisclosed": True,
         "sources": ["https://github.com/livewire/livewire/security/advisories/GHSA-29cq-5w36-x7w3",
