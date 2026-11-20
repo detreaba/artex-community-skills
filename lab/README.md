@@ -18,6 +18,18 @@ A differential PASSES when the probe's match-logic verdict is VULNERABLE on the
 vulnerable half and NOT-VULNERABLE on the patched half. Ledger evidence = the
 captured directory path.
 
+## Verdict convention (Tier 2 probes) — owner ruling 2026-11-20
+- Payloads, PoC probe bytes and match logic are authored by the **owner session**
+  (and by author-role PRs), NOT by the manager/runner roles.
+- A probe is a **black box** to the runner and manager: they execute it and record
+  its output; they do not need to open, describe, or interpret its source.
+- Every probe ends stdout with exactly one line:
+  `# VERDICT: vulnerable|not-vulnerable|inconclusive <one-line basis>`
+- The runner attaches the capture dir; `differential` in the ledger is set only
+  from the two captured VERDICT lines plus evidence paths. Pass = VULNERABLE on
+  the vulnerable half, NOT-VULNERABLE on the patched half; anything else is
+  `fail` with the capture attached.
+
 ## Honesty rules
 - `lab_differential: not-run` until a real run exists; never mark pass on design alone.
 - The container must run **the configuration the advisory describes** (FastCGI for
