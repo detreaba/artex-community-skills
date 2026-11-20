@@ -1,0 +1,128 @@
+{
+  "inventory": {
+    "asset": "training-shop",
+    "build": "release-13",
+    "ref": "image-package-inventory-13",
+    "deployment_verified": true,
+    "packages": [
+      {
+        "ecosystem": "Packagist",
+        "name": "example/http-kernel",
+        "version": "v6.4.50"
+      },
+      {
+        "ecosystem": "npm",
+        "name": "example-widgets",
+        "version": "2.1.0"
+      },
+      {
+        "ecosystem": "Debian:12",
+        "name": "example-webserver",
+        "version": "1.22.1-9+deb12u2",
+        "source_package": true
+      }
+    ]
+  },
+  "snapshot": {
+    "label": "synthetic-example",
+    "covers": [
+      "Packagist",
+      "npm",
+      "Debian"
+    ],
+    "advisories": [
+      {
+        "id": "EXAMPLE-2026-0001",
+        "modified": "2026-11-01T00:00:00Z",
+        "summary": "Synthetic request smuggling advisory",
+        "affected": [
+          {
+            "package": {
+              "ecosystem": "Packagist",
+              "name": "example/http-kernel"
+            },
+            "ranges": [
+              {
+                "type": "ECOSYSTEM",
+                "events": [
+                  {
+                    "introduced": "6.0.0"
+                  },
+                  {
+                    "fixed": "6.4.50"
+                  }
+                ]
+              },
+              {
+                "type": "ECOSYSTEM",
+                "events": [
+                  {
+                    "introduced": "7.0.0"
+                  },
+                  {
+                    "fixed": "7.4.23"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "EXAMPLE-2026-0002",
+        "modified": "2026-11-02T00:00:00Z",
+        "summary": "Synthetic template injection advisory",
+        "affected": [
+          {
+            "package": {
+              "ecosystem": "npm",
+              "name": "example-widgets"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0"
+                  },
+                  {
+                    "fixed": "1.9.4"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "DEBIAN-EXAMPLE-0003",
+        "modified": "2026-11-03T00:00:00Z",
+        "summary": "Synthetic HTTP/2 resource exhaustion",
+        "affected": [
+          {
+            "package": {
+              "ecosystem": "Debian:12",
+              "name": "example-webserver"
+            },
+            "ranges": [
+              {
+                "type": "ECOSYSTEM",
+                "events": [
+                  {
+                    "introduced": "0"
+                  },
+                  {
+                    "fixed": "1.22.1-9+deb12u2"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "urgency": "medium"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
