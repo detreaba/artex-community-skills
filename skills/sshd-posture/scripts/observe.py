@@ -242,10 +242,12 @@ def observe(req):
                             raise ValueError("truncated name-list body")
                         text = payload[off:off + length].decode("ascii", "replace")
                         off += length
-                        # record tokens verbatim (no strip); drop empty comma-fields
-                        # -- a name is non-empty (RFC 4251 Sec. 6). check.py is the
-                        # name-hygiene gate for any other malformed token.
-                        record[name] = [x for x in text.split(",") if x] if text else []
+                        # record tokens faithfully: no strip, no empty-drop, so an
+                        # empty token (e.g. the comma-only body ",") or any other
+                        # non-well-formed name is preserved for check.py -- the
+                        # name-hygiene gate -- to flag. A length-0 name-list stays an
+                        # empty list, a genuine "offers nothing" (distinct from ",").
+                        record[name] = text.split(",") if text else []
                     record["kexinit_read"] = True
                     if skipped:
                         record["notes"].append("skipped %d pre-KEXINIT transport message(s)" % skipped)

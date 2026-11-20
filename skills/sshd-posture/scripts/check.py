@@ -27,7 +27,8 @@ def _is_name(tok):
     """True if tok is a well-formed SSH algorithm name (RFC 4251 Sec. 6): a
     non-empty string of printable US-ASCII with no whitespace and no comma, at most
     64 characters. The local/vendor form ``name@domainname`` has exactly one
-    at-sign with a non-empty part on each side; a name with no at-sign contains no
+    at-sign, a non-empty local part, and a fully-qualified domain name after it (at
+    least two non-empty dot-separated labels); a name with no at-sign contains no
     at-sign at all. A token that is padded, over-long, or @-malformed is NOT a valid
     name -- it must not be exact-matched as if it were a distinct algorithm (which
     would let it slip a forbidden set)."""
@@ -37,7 +38,12 @@ def _is_name(tok):
         return False
     if "@" in tok:
         local, _, domain = tok.partition("@")
-        return local != "" and domain != "" and "@" not in domain
+        if local == "" or "@" in domain:
+            return False
+        # the domain MUST be a fully-qualified domain name (RFC 4251 Sec. 6 ->
+        # RFC 1034): at least two non-empty dot-separated labels.
+        labels = domain.split(".")
+        return len(labels) >= 2 and all(lbl != "" for lbl in labels)
     return True
 
 
@@ -71,48 +77,54 @@ def _category_verdict(record, category, forbidden, required,
     captured direction name-lists -- a forbidden algorithm offered in ANY captured
     direction is a gap, even if the opposite direction was not captured and even if
     part of the forbidden policy list was unreadable (a hit on a well-formed token
-    is definite). ``required`` is checked PER direction: a captured direction
-    offering none of the required set is a gap -- but ONLY when the required list is
-    complete. A partial (``required_partial``) required list cannot prove a miss,
-    because the unreadable element may be the name on offer, so it reads unknown
-    instead. Fails closed: an unresolved malformed/partial policy or record, or a
-    missing direction, reads unknown rather than pass; a definite gap always wins."""
+    is definite). ``required`` is checked PER direction on the well-formed names of
+    directions whose elements are all strings: such a direction offering none of the
+    required set is a PROVABLE miss -> gap (a non-well-formed string token can never
+    equal a well-formed required name), unless the required policy list is partial.
+    Only a non-string element makes a direction unreadable (can't judge required).
+    Fails closed: absent a definite gap, a non-standard token (which may disguise a
+    forbidden name), an unreadable or missing direction, or a partial policy reads
+    unknown rather than pass; a definite gap always wins."""
     if record.get("kexinit_read") is not True:
         # No KEXINIT was fully read (false, absent, or non-boolean). A truncated
         # KEXINIT can leave partial name-lists in the record; they are not trusted.
         return "unknown"
-    clean_directions = []  # directions whose every element was a string
-    seen = set()           # every string name offered across captured directions
+    clean_directions = []  # directions whose elements are all strings (judge required)
+    seen = set()           # well-formed names offered across captured directions
     incomplete = False     # a direction's name-list was absent from the record
-    malformed = False      # a captured name-list carried a non-string element
+    unreadable = False     # a non-string element -> that direction cannot be read
+    nonstandard = False    # a string token that is not a well-formed name
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
             incomplete = True
             continue
-        names = [v for v in vals if _is_name(v)]
-        seen.update(names)
-        if len(names) == len(vals):
-            clean_directions.append(set(names))
-        else:
-            malformed = True  # a non-string or non-well-formed-name token
-    if not seen and not clean_directions and not malformed:
+        valid = [v for v in vals if _is_name(v)]
+        seen.update(valid)
+        if not all(isinstance(v, str) for v in vals):
+            unreadable = True  # a non-string element: the offer cannot be read,
+            continue           # so this direction cannot judge required
+        if len(valid) != len(vals):
+            nonstandard = True  # a string token that is not a well-formed name
+        clean_directions.append(set(valid))
+    if not seen and not clean_directions and not nonstandard and not unreadable:
         return "unknown"  # the category's name-list(s) were not captured at all
-    # forbidden is a positive detection across every captured direction; a hit is
-    # definite even if part of the forbidden list was unreadable.
+    # 1. forbidden: a well-formed forbidden name offered in any captured direction
+    #    is a definite gap (even if part of the forbidden policy list was unreadable).
     if seen & forbidden:
         return "gap"
-    # required is per direction: a fully-parsed direction offering none of the
-    # required set is a gap -- but only when the required list is complete. A
-    # partial required list cannot prove a miss (the unreadable element may be the
-    # offered name), so it falls through to unknown below. A malformed direction is
-    # not used to judge required -- its full offer is unknown.
+    # 2. required: a direction whose elements are all strings but offers none of the
+    #    required set is a PROVABLE miss -> gap. A non-well-formed string token can
+    #    never equal a well-formed required name, so it does not make the miss
+    #    unprovable; only a non-string (unreadable) direction or a partial required
+    #    policy does, and those are excluded here.
     if required and not required_partial and \
             any(not (d & required) for d in clean_directions):
         return "gap"
-    # nothing was a definite gap; a malformed/partial policy or record, or a
-    # missing direction, means a clean pass cannot be confirmed -> unknown.
-    if malformed or incomplete or forbidden_partial or required_partial:
+    # 3. no definite gap. A clean pass cannot be confirmed when a token was
+    #    non-standard (it may disguise a forbidden algorithm), a direction was
+    #    unreadable or missing, or the policy was partial -> unknown.
+    if nonstandard or unreadable or incomplete or forbidden_partial or required_partial:
         return "unknown"
     return "pass"
 

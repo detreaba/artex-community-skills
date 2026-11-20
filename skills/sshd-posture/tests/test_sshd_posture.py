@@ -521,6 +521,34 @@ class VerdictRules(unittest.TestCase):
         rec["policy"] = {"required": {"cipher": ["aes256-gcm@openssh.com"]}}
         self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
 
+    def test_invalid_fqdn_at_sign_token_is_not_a_name(self):
+        # RFC 4251 Sec. 6: the domain after @ must be a fully-qualified domain name.
+        # "3des-cbc@x" (single label, no dot) and "3des-cbc@." (empty labels) are
+        # not valid names -> malformed -> unknown, not a distinct-algorithm pass.
+        for tok in ("3des-cbc@x", "3des-cbc@."):
+            rec = self._rec(encryption_c2s=[tok], encryption_s2c=[tok])
+            rec["policy"] = {"forbidden": {"cipher": ["3des-cbc"]}}
+            self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown",
+                             "token %r should be malformed" % tok)
+
+    def test_provable_required_miss_with_nonstandard_sibling_is_gap(self):
+        # A direction whose elements are all STRINGS -- a valid non-required name
+        # plus an empty or padded token -- definitively offers no required name, so
+        # the miss is provable -> gap (a non-well-formed string can never be a
+        # required name). Only a non-string sibling would make it unprovable.
+        for sib in ("", "x "):
+            out = check.evaluate(self._rec(encryption_c2s=["aes128-ctr", sib],
+                                           encryption_s2c=["aes128-ctr", sib]))
+            self.assertEqual(out["per_category"]["cipher"], "gap",
+                             "sibling %r: required miss is provable" % sib)
+
+    def test_non_string_sibling_leaves_required_unprovable_unknown(self):
+        # Contrast: a NON-STRING sibling makes the direction unreadable, so a
+        # required miss cannot be proved from it -> unknown (not gap).
+        out = check.evaluate(self._rec(encryption_c2s=["aes128-ctr", ["x"]],
+                                       encryption_s2c=["aes128-ctr", ["x"]]))
+        self.assertEqual(out["per_category"]["cipher"], "unknown")
+
     def test_absent_policy_category_is_no_constraint(self):
         # Control for F-SSH-16: a category simply ABSENT (not null) is no
         # constraint -- an unrelated offer is not judged against it.
@@ -633,28 +661,43 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(out["per_category"]["cipher"], "gap")
 
     def test_padded_token_on_the_wire_fails_closed(self):
-        # observe.py records tokens verbatim (a trailing space is kept); check.py
-        # is the hygiene gate, so a padded forbidden token reads unknown, not pass.
+        # observe.py records tokens verbatim (a trailing space is kept); check.py is
+        # the hygiene gate. Under a forbidden-only policy a padded token cannot be
+        # confirmed clean -> unknown (it may disguise the forbidden algorithm).
         packet = build_kexinit(
             kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
             enc=["3des-cbc "],  # trailing space on the wire
             mac=["hmac-sha2-256-etm@openssh.com"])
         with Fixture(b"SSH-2.0-PaddedSSH_1.0\r\n", packet) as fx:
-            rec = observe.observe(_req(fx.port, POLICY))
+            rec = observe.observe(_req(fx.port, {"forbidden": {"cipher": ["3des-cbc"]}}))
         self.assertEqual(rec["encryption_c2s"], ["3des-cbc "])  # recorded verbatim
         self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
 
-    def test_empty_comma_fields_are_dropped_on_the_wire(self):
-        # A name-list body "aes256-gcm@openssh.com,," carries empty comma-fields;
-        # observe.py drops them (a name is non-empty, RFC 4251 Sec. 6) so none reach
-        # check.py -- the empty-token cell cannot diverge from a real observation.
+    def test_comma_only_namelist_is_recorded_faithfully_and_flagged(self):
+        # F-SSH-19: observe.py records tokens faithfully (no empty-drop), so a
+        # comma-only body "," reaches check.py as empty tokens -- not a length-0
+        # empty offer -- and reads unknown rather than taking the empty-offer pass.
         packet = build_kexinit(
             kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
-            enc=["aes256-gcm@openssh.com", "", ""],  # trailing empties on the wire
+            enc=["", ""],  # ",".join -> body "," on the wire -> two empty tokens
             mac=["hmac-sha2-256-etm@openssh.com"])
-        with Fixture(b"SSH-2.0-EmptySSH_1.0\r\n", packet) as fx:
-            rec = observe.observe(_req(fx.port, POLICY))
-        self.assertEqual(rec["encryption_c2s"], ["aes256-gcm@openssh.com"])
+        with Fixture(b"SSH-2.0-CommaSSH_1.0\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, {"forbidden": {"cipher": ["3des-cbc"]}}))
+        self.assertEqual(rec["encryption_c2s"], ["", ""])  # faithful, not dropped
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_length_zero_namelist_is_a_genuine_empty_offer(self):
+        # Contrast to the comma-only case: a length-0 name-list ("" on the wire) is
+        # a genuine empty offer -- it stays [] and takes the empty-offer path (pass
+        # under a forbidden-only policy), distinct from ","(-> unknown).
+        packet = build_kexinit(
+            kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+            enc=[""],  # ",".join([""]) == "" -> length-0 name-list
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-EmptyOffer_1.0\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, {"forbidden": {"cipher": ["3des-cbc"]}}))
+        self.assertEqual(rec["encryption_c2s"], [])  # genuine empty offer
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "pass")
 
     def test_skips_ignore_and_debug_before_kexinit(self):
         # F-SSH-2: a server may send SSH_MSG_IGNORE / DEBUG before KEXINIT; the

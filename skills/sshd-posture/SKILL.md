@@ -86,11 +86,15 @@ directions independently, so:
   check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction
   reads `unknown`;
 - a captured name-list, or a policy list, carrying an element that is not a
-  **well-formed name** — a non-string, or a token with whitespace, a control/
-  non-ASCII character, a comma, or over 64 characters (RFC 4251 §6) — keeps its
-  valid names (a forbidden name among them still decides `gap`) and is otherwise
-  malformed → `unknown`, so a padded token like `"3des-cbc "` cannot slip a
-  `forbidden` match by reading as a distinct algorithm; a policy category or section that is present but
+  **well-formed name** — a non-string; a token with whitespace, a control/
+  non-ASCII character, a comma, or over 64 characters; or a malformed `name@domain`
+  (not exactly one `@`, an empty local part, or a domain that is not a
+  fully-qualified name) (RFC 4251 §6) — keeps its valid names (a forbidden name
+  among them still decides `gap`) and is otherwise malformed → `unknown`, so a
+  token like `"3des-cbc "` or `"3des-cbc@"` cannot slip a `forbidden` match by
+  reading as a distinct algorithm. `observe.py` records tokens faithfully (no
+  strip, no empty-drop), so the comma-only body `","` reaches `check.py` as empty
+  tokens and reads `unknown`, distinct from a length-0 empty offer; a policy category or section that is present but
   **null** or not a list is unusable → `unknown`; one that is simply absent, or an
   **empty** `forbidden`/`required` list, is no constraint. A malformed or unknown
   policy bit never masks a definite `gap`. The one asymmetry: a partial `required`
