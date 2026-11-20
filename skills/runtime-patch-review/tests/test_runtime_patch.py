@@ -366,8 +366,12 @@ class RuntimePatchTests(unittest.TestCase):
             self.assertEqual((run.returncode, json.loads(run.stdout)["error"]), (2, "invalid_input"))
 
     def test_branch_limited_configuration_evidence(self):
-        # CVE-2026-129481 documents no necessary configuration, so even a scoped empty record gives unknown.
+        # CVE-2026-129481: "The requests must reach the same worker"; pm.max_requests=1 prevents the demonstrated sequence.
         self.assertEqual(self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12", config())["applicability"], "unknown")
+        for value, want in ((True, "conditions_present"), (False, "conditions_absent"), (None, "unknown")):
+            row = self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12", config(worker_reused_across_requests=value))
+            self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", want))
+        self.assertIn("pm.max_requests=1", self.php_cli(PHP_SESSION_SHUTDOWN, "8.5.12")["limitations"][2])
         with self.assertRaises(ValueError):
             review(dict(inventory(PHP_SESSION_SHUTDOWN, "8.5.12"), applicability=config(session_files_handler_in_use=True)))
         both = ("fatal_error_backtraces_enabled", "exception_args_included")

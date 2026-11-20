@@ -98,10 +98,10 @@ ADVISORIES = {
         "branch_parts": 2,
         "outside": (((0, 0, 0), (8, 3, 0)),),
         "outside_reason": 'The vendor states: "PHP 8.2 and earlier do not contain the field and are not affected."',
-        "conditions": (),
+        "conditions": ("worker_reused_across_requests",),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-g3vh-838c-65v7",
         "release_sources": (PHP_860_CHANGELOG,),
-        "limitation": "No configuration setting is documented as necessary, so applicability stays unknown. The demonstrated path needs a fatal error in a callback reached during session cleanup, such as a stream wrapper's stream_close(), and a later request to the same worker. Enabling OPcache is not a reliable mitigation.",
+        "limitation": "The demonstrated sequence needs a fatal error in a callback reached during session cleanup, such as a stream wrapper's stream_close(), and a later request to the same worker. The vendor says that for PHP-FPM, setting pm.max_requests=1 and restarting the workers prevents the demonstrated sequence. Enabling OPcache is not a reliable mitigation.",
     },
     "CVE-2026-129474": {
         "runtime": "php",
