@@ -36,6 +36,15 @@ For CVE-2026-34486, identify `org.apache.catalina.tribes.group.interceptors.Encr
 
 Earlier reviewed stable releases that contain the class give `outside_affected_range` with a null first fix. On 9.0 the first published artifact containing this class was 9.0.13. A legacy Tribes artifact with a missing or shared bundle name must match its own published Maven digest and coordinate before the checker reports an earlier release outside the affected range. An inventory claiming to have loaded it from an earlier 9.0 release yields `unknown`. Published stable releases at or after the fix on each reviewed line give `vendor_fix_present`. The class inventory does not establish clustering configuration. [Affected Tribes example](examples/CVE-2026-34486.json)
 
+A Tribes verdict applies only to CVE-2026-34486. For example, 9.0.115 predates this regression and falls in Apache’s affected range for CVE-2026-29146. Release 9.0.117 includes this regression’s fix and falls in the affected range for CVE-2026-95517. Review the deployed release separately against each applicable EncryptInterceptor advisory. Apache lists the following affected ranges on the three supported lines. [Apache Tomcat 9](https://tomcat.apache.org/security-9.html) · [Apache Tomcat 10](https://tomcat.apache.org/security-10.html) · [Apache Tomcat 11](https://tomcat.apache.org/security-11.html)
+
+| Other EncryptInterceptor advisory | Tomcat 9 | Tomcat 10 | Tomcat 11 |
+| --- | --- | --- | --- |
+| CVE-2026-29146 | 9.0.13–9.0.115 | 10.0.0-M1–10.1.52 | 11.0.0-M1–11.0.18 |
+| CVE-2026-55955 | 9.0.13–9.0.118 | 10.1.0-M1–10.1.55 | 11.0.0-M1–11.0.22 |
+| CVE-2026-59084 | 9.0.13–9.0.119 | 10.1.0-M1–10.1.56 | 11.0.0-M1–11.0.23 |
+| CVE-2026-95517 | 9.0.13–9.0.123 | 10.1.0-M1–10.1.61 | 11.0.0-M1–11.0.27 |
+
 ## Identify the loaded artifact
 
 Use a saved owner inventory from the serving JVM. Enter short, redacted aliases for the `asset`, deployed `build`, specific running `instance` and evidence `ref`. Use a per-start instance reference so an earlier JVM cannot stand in for a replacement.

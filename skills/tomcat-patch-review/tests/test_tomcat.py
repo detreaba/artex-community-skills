@@ -160,6 +160,19 @@ class TomcatTests(unittest.TestCase):
                     self.assertEqual((row["patch_status"], row["first_fixed_on_branch"], row["observed_version"]),
                                      (status, first, v))
 
+    def test_tribes_reason_scopes_each_patch_status_to_one_advisory(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
+        for version in ("9.0.115", "9.0.116", "9.0.117", "9.0.125"):
+            with self.subTest(version=version):
+                sample["inventory"].update(implementation_version=version, upstream_version=version)
+                reason = self.result(sample)["patch_reason"]
+                self.assertIn("only to CVE-2026-34486", reason)
+                for advisory in ("CVE-2026-29146", "CVE-2026-55955", "CVE-2026-59084", "CVE-2026-95517"):
+                    self.assertIn(advisory, reason)
+        for name in ("pass", "CVE-2025-24813"):
+            other = json.loads((ROOT / "examples" / (name + ".json")).read_bytes())
+            self.assertNotIn("CVE-2026-95517", self.result(other)["patch_reason"])
+
     def test_tribes_class_and_defining_artifact_are_required(self):
         sample = json.loads((ROOT / "examples/CVE-2026-34486.json").read_bytes())
         for field, value in (("class_name", "org.apache.catalina.servlets.DefaultServlet"),

@@ -155,6 +155,10 @@ def review(request):
     if reason is None:
         observed = record["implementation_version"]
         status, reason, first = release_decision(profile, *RELEASES[observed])
+    if advisory == TRIBES:
+        reason += (" This status applies only to CVE-2026-34486. Review the EncryptInterceptor advisories "
+                   "CVE-2026-29146, CVE-2026-55955, CVE-2026-59084 and CVE-2026-95517 separately "
+                   "against Apache's affected ranges for the deployed release.")
     return {
         "advisory": advisory, "product": "Apache Tomcat", "scope": scope, "evidence_refs": refs,
         "observed_version": observed, "patch_status": status, "patch_reason": reason,
