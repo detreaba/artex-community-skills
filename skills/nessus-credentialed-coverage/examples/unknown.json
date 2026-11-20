@@ -1,0 +1,11 @@
+{
+  "asset": "training-portal",
+  "run": "weekly-os-07",
+  "ref": "saved-nessus-unknown",
+  "report_name": "Weekly OS review",
+  "host_name": "web-01.example.invalid",
+  "host_start": "Wed Nov 18 13:45:00 2026",
+  "direct_os_scan_verified": true,
+  "coverage_records_complete": true,
+  "xml": "<NessusClientData_v2>\n  <Report name=\"Weekly OS review\">\n    <ReportHost name=\"web-01.example.invalid\">\n      <HostProperties>\n        <tag name=\"HOST_START\">Wed Nov 18 13:45:00 2026</tag>\n      </HostProperties>\n      <ReportItem port=\"22\" svc_name=\"ssh\" protocol=\"tcp\" severity=\"0\" pluginID=\"141118\" pluginName=\"Target Credential Status by Authentication Protocol - Valid Credentials Provided\" pluginFamily=\"Settings\">\n        <plugin_output>Protocol: SSH</plugin_output>\n      </ReportItem>\n    </ReportHost>\n  </Report>\n</NessusClientData_v2>\n"
+}
