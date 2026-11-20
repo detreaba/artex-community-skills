@@ -28,6 +28,7 @@ def files_for_skill(skill):
     entries = [skill / name for name in FIXED_FILES] + tests + advisory_examples
     if skill.name == "tomcat-patch-review":
         entries.append(skill / "scripts" / "legacy-artifacts.sha256")
+        entries.append(skill / "scripts" / "october-artifacts.tsv")
     for entry in entries:
         if entry.is_symlink() or not entry.is_file():
             raise ValueError(f"Expected a regular package file: {entry}")

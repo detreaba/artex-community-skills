@@ -1,6 +1,6 @@
 ---
 name: tomcat-patch-review
-description: Check Apache Tomcat patch status for CVE-2026-103119, CVE-2025-24813 and CVE-2026-34486 using saved evidence of the defining artifact loaded in one serving JVM.
+description: Check Apache Tomcat patch status for the JNDI realm, asynchronous HTTP/2 processing, connector output buffer, default servlet and Tribes interceptor using saved evidence of the defining artifact loaded in one serving JVM.
 ---
 
 # Review the Tomcat release loaded by a serving JVM
@@ -45,6 +45,26 @@ A Tribes verdict applies only to CVE-2026-34486. For example, 9.0.115 predates t
 | CVE-2026-59084 | 9.0.13–9.0.119 | 10.1.0-M1–10.1.56 | 11.0.0-M1–11.0.23 |
 | CVE-2026-95517 | 9.0.13–9.0.123 | 10.1.0-M1–10.1.61 | 11.0.0-M1–11.0.27 |
 
+## October realm and HTTP/2 advisories
+
+Select **CVE-2026-101296** for the JNDI realm and **CVE-2026-101356** for HTTP/2 asynchronous servlet processing. Apache announced both on 20 October 2026. Use the loaded class that Apache changed on the observed branch. For the realm, record `org.apache.catalina.realm.JNDIRealm` from its defining Catalina or embedded-core JAR when the class is present. For HTTP/2, record `org.apache.coyote.AsyncStateMachine` from Coyote or embedded core. A connector name or an enclosing application's version leaves the implementing JAR unresolved. [Apache 9](https://tomcat.apache.org/security-9.html#Fixed_in_Apache_Tomcat_9.0.123) · [Apache 10](https://tomcat.apache.org/security-10.html#Fixed_in_Apache_Tomcat_10.1.61) · [Apache 11](https://tomcat.apache.org/security-11.html#Fixed_in_Apache_Tomcat_11.0.27)
+
+| Release line | JNDI realm affected range | HTTP/2 affected range | First fixed on this line |
+| --- | --- | --- | --- |
+| 7.0 | 7.0.0 through 7.0.109 | Outside this profile's reviewed lines | No upstream realm fix |
+| 8.5 | 8.5.0 through 8.5.100 | Outside this profile's reviewed lines | No upstream realm fix |
+| 9.0 | 9.0.0.M1 through 9.0.122 | 9.0.118 through 9.0.122 | 9.0.123 |
+| 10.1 | 10.1.0-M1 through 10.1.60 | 10.1.55 through 10.1.60 | 10.1.61 |
+| 11.0 | 11.0.0-M1 through 11.0.26 | 11.0.22 through 11.0.26 | 11.0.27 |
+
+The October profiles check actual Apache releases and Maven Central artifacts, including milestones with the publisher's exact spelling. The Maven catalog covers 1,042 published JARs and records their main-manifest bundle name, SHA-256 and relevant class membership. For standalone Coyote the Maven coordinate is `org.apache.tomcat:tomcat-coyote:VERSION` and the modern bundle name is `org.apache.tomcat-coyote`. A claimed 10.1.58 yields `unknown` because that release was skipped. Keep `scripts/october-artifacts.tsv` beside the checker. [Apache release archive](https://archive.apache.org/dist/tomcat/) · [Published Coyote artifacts](https://repo.maven.apache.org/maven2/org/apache/tomcat/tomcat-coyote/)
+
+A modern, artifact-specific bundle name can support an owner-verified upstream class inventory. If the main manifest omits the header or shares it with another JAR, supply a distinct `maven_provenance.ref`, the full coordinate and both digests described below. Every supplied digest comparison must agree with the bundled release catalog. A copied public digest cannot establish which bytes the running JVM loaded. A downstream build requires its distributor's package and backport record. [Debian realm tracker](https://security-tracker.debian.org/tracker/CVE-2026-101296) · [Debian HTTP/2 tracker](https://security-tracker.debian.org/tracker/CVE-2026-101356)
+
+Apache published the standalone 7.0.10 release. The two corresponding artifacts are absent from Maven Central. Both Apache binary distributions contain the same `apache-tomcat-7.0.10/lib/catalina.jar`. For that release, use `inventory.apache_archive_provenance` with a distinct `ref`, that exact `member`, and `loaded_sha256` and `published_sha256` measured independently. Use one provenance record per inventory. A matching JNDIRealm inventory gives `affected_version` with an empty first fix. [Apache 7.0.10 binary archive](https://archive.apache.org/dist/tomcat/tomcat-7/v7.0.10/bin/)
+
+In the realm example, a verified 7.0.109 Catalina JAR gives `affected_version` with an empty first fix. The HTTP/2 example gives `affected_version` for Coyote 10.1.60 with first fix 10.1.61. Report `applicability` as `unknown` for both. A serving inventory identifies the release. Determine the active realm and SASL mechanism, or HTTP/2 and asynchronous servlet use, from separate configuration evidence for the same JVM generation. [Realm example](examples/CVE-2026-101296.json) · [HTTP/2 example](examples/CVE-2026-101356.json)
+
 ## Identify the loaded artifact
 
 Use a saved owner inventory from the serving JVM. Enter short, redacted aliases for the `asset`, deployed `build`, specific running `instance` and evidence `ref`. Use a per-start instance reference so an earlier JVM cannot stand in for a replacement.
@@ -69,9 +89,9 @@ python3 scripts/check.py < examples/gap.json
 
 In ARTEX, ask for the checker JSON and its evidence reference. Cite the advisory, asset, build, instance and evidence reference in the answer.
 
-- `affected_version` identifies a loaded upstream release inside the published range. Give `first_fixed_on_branch` when present. For affected 8.5, report that Apache provides no fix on that line. Request a new class inventory after updating and restarting. [Affected standalone example](examples/gap.json)
+- `affected_version` identifies a loaded upstream release inside the published range. Give `first_fixed_on_branch` when present. For an affected retired branch with an empty first fix, report that Apache provides no fix on that line. Request a new class inventory after updating and restarting. [Affected standalone example](examples/gap.json)
 - `vendor_fix_present` confirms the fix in the identified artifact. Other JVMs in a rolling deployment need their own observations. [Fixed embedded example](examples/pass.json)
-- `outside_affected_range` identifies a verified Tribes release predating its branch’s regression. Report the observed version and leave the first fix empty.
-- `unknown` identifies missing or conflicting evidence, another release line, or a release outside this review. Milestones, including the affected M25 named by Apache, require separate review. A distributor build needs its distributor's patch decision. Use `patch_reason` to identify the missing evidence. [Build-file-only example](examples/unknown.json)
+- `outside_affected_range` identifies a verified Tribes or HTTP/2 artifact predating its branch’s regression. Report the observed version and leave the first fix empty.
+- `unknown` identifies missing or conflicting evidence, another release line, or a release outside this review. For the connector, default servlet and Tribes profiles, milestones require separate review. A distributor build needs its distributor's patch decision. Use `patch_reason` to identify the missing evidence. [Build-file-only example](examples/unknown.json)
 
 Keep `applicability` unknown. A release inventory cannot establish runtime configuration, site exposure or impact. An `invalid_input` result calls for a corrected JSON record.
