@@ -1,0 +1,9 @@
+services:
+  vulnerable:
+    image: php:8.3.36
+    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    ports: ["127.0.0.1:8081:8080"]
+  patched:
+    image: php:8.3.37
+    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    ports: ["127.0.0.1:8082:8080"]

@@ -1,0 +1,12 @@
+# No HTTP listener yet — author of the java4shell card defines the serving
+# harness. Until then the runner records connection-failure captures (honest
+# fail-closed control output, not a differential).
+services:
+  vulnerable:
+    image: eclipse-temurin:17.0.20_8-jdk
+    command: ["sleep", "infinity"]
+    ports: ["127.0.0.1:8089:8080"]
+  patched:
+    image: eclipse-temurin:17.0.21_9-jdk
+    command: ["sleep", "infinity"]
+    ports: ["127.0.0.1:8090:8080"]

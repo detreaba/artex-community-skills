@@ -1,0 +1,7 @@
+services:
+  vulnerable:
+    image: nginx:1.31.8
+    ports: ["127.0.0.1:8085:80"]
+  patched:
+    image: nginx:1.31.9
+    ports: ["127.0.0.1:8086:80"]
