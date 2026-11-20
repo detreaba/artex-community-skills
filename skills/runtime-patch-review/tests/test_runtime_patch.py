@@ -274,6 +274,22 @@ class RuntimePatchTests(unittest.TestCase):
             self.assertEqual(self.php_cli(advisory, "8.5.13", config(**{condition: True}))["applicability"],
                              "conditions_present")
 
+    def test_november_rce_sources_and_limitations(self):
+        ghsa = {PHP_SESSION_FILES: "GHSA-fm2m-fjf5-v3cp", PHP_FPM_SMUGGLING: "GHSA-qc49-hpvq-g2w6", PHP_TZ_CACHE: "GHSA-gr4f-wgx5-jpfv"}
+        phrases = {PHP_SESSION_FILES: "Other session storage is not affected", PHP_FPM_SMUGGLING: "php://input",
+                   PHP_TZ_CACHE: "restarting the PHP master process and all workers"}
+        for advisory in NOV_RCE:
+            with self.subTest(advisory=advisory):
+                row = self.php_cli(advisory, "8.5.12")
+                self.assertEqual(row["sources"], ["https://github.com/php/php-src/security/advisories/" + ghsa[advisory],
+                                                  "https://www.php.net/ChangeLog-8.php#8.6.0"])
+                self.assertIn(phrases[advisory], row["limitations"][2])
+                # A condition name from another advisory is rejected through the CLI.
+                request = dict(inventory(advisory, "8.5.12"), applicability=config(node_handles_http2=True))
+                run = subprocess.run([sys.executable, "-ISB", str(CHECKER)], input=json.dumps(request), text=True,
+                                     capture_output=True, timeout=5)
+                self.assertEqual((run.returncode, json.loads(run.stdout)["error"]), (2, "invalid_input"))
+
     def test_profile_without_conditions_never_reports_conditions_present(self):
         # all() over an empty tuple is true; a scoped empty record must still give unknown.
         profile = dict(checker.ADVISORIES[PHP_SESSION_FILES], conditions=())

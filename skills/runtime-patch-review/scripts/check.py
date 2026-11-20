@@ -72,7 +72,7 @@ ADVISORIES = {
         "conditions": ("session_files_handler_in_use",),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-fm2m-fjf5-v3cp",
         "release_sources": (PHP_860_CHANGELOG,),
-        "limitation": "Only PHP's built-in files session handler is affected. Exploitation also needs attacker-influenced session data, an interrupted write and a deserialization gadget in the application, which this check does not establish.",
+        "limitation": "Only PHP's built-in files session handler is affected. Other session storage is not affected by this defect, although its own handling of interrupted updates needs separate review. Exploitation also needs attacker-influenced session data, an interrupted write and a deserialization gadget in the application, which this check does not establish.",
     },
     "CVE-2026-129289": {
         "runtime": "php",
@@ -90,7 +90,7 @@ ADVISORIES = {
         "conditions": ("php_error_log_to_file",),
         "source": "https://github.com/php/php-src/security/advisories/GHSA-gr4f-wgx5-jpfv",
         "release_sources": (PHP_860_CHANGELOG,),
-        "limitation": "The trigger also needs a startup diagnostic written to that log, such as an invalid date.timezone or a deprecated session setting, and an early request diagnostic in a fresh worker. Clearing startup diagnostics and restarting all workers removes the demonstrated trigger.",
+        "limitation": "The trigger also needs a startup diagnostic written to that log, such as an invalid date.timezone value or a warning or deprecation caused by session configuration, and an early request diagnostic in a fresh worker. Workers inherit the stale reference from the parent, so correcting those settings and then restarting the PHP master process and all workers removes the demonstrated trigger.",
     },
     "CVE-2026-129481": {
         "runtime": "php",
