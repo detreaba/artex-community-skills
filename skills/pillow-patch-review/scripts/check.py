@@ -124,9 +124,9 @@ def review(request):
     status, reason = assess(inventory, wheel, native, wrapper, scope, refs)
     limitations = ["The result covers one worker and the public ImageCms wrapper. "
                    "Application use and direct calls to the private extension require separate review."]
-    if native.get("binding") == "mapped_file":
-        limitations.append("On a mapped native file, the verdict relies on the import-time attestation "
-                           "that the worker executed the supplied wrapper source bytes.")
+    if wrapper.get("binding") == "imported_source":
+        limitations.append("An imported_source wrapper requires an import-time attestation that the worker "
+                           "executed the supplied wrapper source bytes.")
     return {
         "advisory": ADVISORY, "scope": scope, "patch_status": status, "patch_reason": reason,
         "version": inventory.get("version") if status != "unknown" else None,

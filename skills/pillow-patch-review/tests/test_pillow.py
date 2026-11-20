@@ -155,6 +155,21 @@ class PillowTests(unittest.TestCase):
         self.verify(data, "unknown")
         self.verify(linux, "vendor_fix_present")
 
+    def test_attestation_limitation_follows_the_wrapper_binding(self):
+        for native, wrapper, status, attested in (
+            ("immutable_image", "imported_source", "vendor_fix_present", True),
+            ("immutable_image", "immutable_image", "vendor_fix_present", False),
+            ("mapped_file", "imported_source", "vendor_fix_present", True),
+            ("mapped_file", "immutable_image", "unknown", False),
+            ("mapped_file", "path_hash", "unknown", False),
+        ):
+            with self.subTest(native=native, wrapper=wrapper):
+                data = evidence("12.3.0")
+                data["native"].update(binding=native, immutable_start_verified=True)
+                data["wrapper"]["binding"] = wrapper
+                row = self.verify(data, status)
+                self.assertEqual(any("import-time attestation" in item for item in row["limitations"]), attested)
+
     def test_legacy_native_only_record_remains_readable(self):
         for version in ("12.2.0", "12.3.0"):
             data = evidence(version)
