@@ -14,14 +14,16 @@ only; Python 3.9+.
 
 Scope and safety. One endpoint per run; ``authorization_ref`` is mandatory; a
 list/range/wildcard host or a non-IP pinned ``address`` is ``invalid_input``.
-The only bytes sent are a single SSH identification line (required to elicit the
-server's KEXINIT); it never authenticates, never completes key exchange, never
-opens a channel, and sends no application data. Build and verify it against
+The only bytes sent are one SSH identification line and one SSH_MSG_KEXINIT (the
+transport offer that elicits the server's KEXINIT); it never sends NEWKEYS,
+completes key exchange, authenticates, opens a channel, or sends application
+data. Build and verify it against
 loopback fixtures only; never point it at a host you are not authorized to
 observe. It carries no exploit payload.
 """
 import ipaddress
 import json
+import os
 import socket
 import struct
 import sys
@@ -103,6 +105,31 @@ def _read_identification(sock):
     return None, b""
 
 
+def _client_kexinit():
+    """Build one client SSH_MSG_KEXINIT. Sending it elicits the server's KEXINIT
+    even from a server that waits to read the client's first (RFC 4253 7.1). It
+    advertises ordinary modern algorithms and is never followed by NEWKEYS, so no
+    key exchange completes."""
+    name_lists = (
+        "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256",
+        "ssh-ed25519,rsa-sha2-512,rsa-sha2-256",
+        "chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes256-ctr",
+        "chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes256-ctr",
+        "hmac-sha2-256-etm@openssh.com,hmac-sha2-256",
+        "hmac-sha2-256-etm@openssh.com,hmac-sha2-256",
+        "none", "none", "", "",
+    )
+    payload = bytes([SSH_MSG_KEXINIT]) + os.urandom(16)
+    for nl in name_lists:
+        payload += struct.pack(">I", len(nl)) + nl.encode("ascii")
+    payload += b"\x00" + struct.pack(">I", 0)  # first_kex_packet_follows, reserved
+    base = 4 + 1 + len(payload)
+    pad = 8 - (base % 8)
+    if pad < 4:
+        pad += 8
+    return struct.pack(">I", 1 + len(payload) + pad) + bytes([pad]) + payload + b"\x00" * pad
+
+
 def observe(req):
     target = req["target"]
     host = target["host"].strip()
@@ -148,8 +175,12 @@ def observe(req):
             record["protocol"] = parts[1]
             record["software"] = parts[2].split(" ", 1)[0]
 
-        # The single identification line is the only thing we ever send.
+        # Send our identification line and one KEXINIT: the transport-level offer
+        # that elicits the server's KEXINIT even from a server that waits to read
+        # the client's first. We never send NEWKEYS, complete key exchange,
+        # authenticate, open a channel, or send any application data.
         sock.sendall(CLIENT_IDENT)
+        sock.sendall(_client_kexinit())
 
         buf = bytearray(leftover)
 

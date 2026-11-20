@@ -34,8 +34,11 @@ Reads one JSON request on stdin and prints an observation record:
   to 22.
 - One TCP connection, 5s timeouts, no retries.
 - It reads the server's identification line(s) (RFC 4253 §4.2; at most 64 lines /
-  8 KiB), then sends **one** client identification line
-  (`SSH-2.0-artex-sshd-posture-observer`) — the only bytes it ever sends.
+  8 KiB), then sends one client identification line
+  (`SSH-2.0-artex-sshd-posture-observer`) and one `SSH_MSG_KEXINIT` — the
+  transport offer that elicits the server's KEXINIT even from a server that waits
+  to read the client's first. It never sends `SSH_MSG_NEWKEYS`, completes key
+  exchange, authenticates, opens a channel, or sends application data.
 - It reads binary transport packets, skipping any `SSH_MSG_IGNORE` / `DEBUG` /
   `UNIMPLEMENTED` that precede key exchange (bounded to a small packet budget),
   until the server's `SSH_MSG_KEXINIT` (each `packet_length` capped at the RFC

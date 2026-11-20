@@ -81,10 +81,11 @@ class Fixture:
     """A one-shot loopback SSH-ish listener: sends a banner, then (optionally) a
     KEXINIT packet, then closes."""
 
-    def __init__(self, banner, packet=b"", send_packet=True):
+    def __init__(self, banner, packet=b"", send_packet=True, proactive=False):
         self.banner = banner
         self.packet = packet
         self.send_packet = send_packet
+        self.proactive = proactive
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("127.0.0.1", 0))
@@ -100,13 +101,21 @@ class Fixture:
         try:
             conn, _ = self.srv.accept()
             conn.settimeout(5)
-            conn.sendall(self.banner)
-            try:
-                conn.recv(512)  # the observer's identification line
-            except OSError:
-                pass
-            if self.send_packet:
-                conn.sendall(self.packet)
+            if self.proactive:
+                # Server writes its banner and KEXINIT before reading anything, so
+                # the observer parses the KEXINIT from the bytes trailing the
+                # banner. Drain the observer's writes so closing never races them.
+                conn.sendall(self.banner + (self.packet if self.send_packet else b""))
+                self._drain(conn)
+            else:
+                # Server withholds its KEXINIT until it has read the observer's.
+                conn.sendall(self.banner)
+                try:
+                    self._read_client_kexinit(conn)
+                except OSError:
+                    pass
+                if self.send_packet:
+                    conn.sendall(self.packet)
             conn.close()
         except OSError:
             pass
@@ -115,6 +124,35 @@ class Fixture:
                 self.srv.close()
             except OSError:
                 pass
+
+    @staticmethod
+    def _drain(conn):
+        try:
+            while conn.recv(4096):
+                pass
+        except OSError:
+            pass
+
+    @staticmethod
+    def _read_client_kexinit(conn):
+        buf = b""
+        while b"\n" not in buf:
+            chunk = conn.recv(256)
+            if not chunk:
+                raise OSError("client closed before identification")
+            buf += chunk
+        buf = buf.split(b"\n", 1)[1]
+        while len(buf) < 4:
+            chunk = conn.recv(256)
+            if not chunk:
+                raise OSError("client closed before KEXINIT length")
+            buf += chunk
+        plen = struct.unpack(">I", buf[:4])[0]
+        while len(buf) < 4 + plen:
+            chunk = conn.recv(4096)
+            if not chunk:
+                raise OSError("client closed before KEXINIT body")
+            buf += chunk
 
     def __exit__(self, *exc):
         try:
@@ -228,7 +266,7 @@ class LoopbackParser(unittest.TestCase):
             hostkey=["ssh-ed25519", "rsa-sha2-512"],
             enc=["chacha20-poly1305@openssh.com", "aes256-gcm@openssh.com", "aes256-ctr"],
             mac=["hmac-sha2-256-etm@openssh.com", "hmac-sha2-512-etm@openssh.com"])
-        with Fixture(b"SSH-2.0-FixtureSSH_1.0\r\n", packet) as fx:
+        with Fixture(b"SSH-2.0-FixtureSSH_1.0\r\n", packet, proactive=True) as fx:
             rec = observe.observe(_req(fx.port, POLICY))
         self.assertTrue(rec["kexinit_read"])
         self.assertEqual(rec["protocol"], "2.0")
@@ -259,6 +297,20 @@ class LoopbackParser(unittest.TestCase):
             hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
             mac=["hmac-sha2-256"])
         with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["kex"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_sends_client_kexinit_when_server_waits(self):
+        # F-SSH-3: a server that withholds its KEXINIT until it reads the client's
+        # must still be observed -- the observer sends its own KEXINIT.
+        packet = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                               hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                               mac=["hmac-sha2-256"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r\n", packet) as fx:  # default: waits for our KEXINIT
             rec = observe.observe(_req(fx.port, POLICY))
         self.assertTrue(rec["kexinit_read"])
         self.assertIn("diffie-hellman-group1-sha1", rec["kex_algorithms"])
