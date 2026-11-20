@@ -143,6 +143,43 @@ class FrameworkTests(unittest.TestCase):
             row = self.check(sample)
             self.assertEqual((row["patch_status"], row["applicability"]), (patch, feature))
 
+    def test_react_october_fix_boundaries_and_previous_advisory(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-126187.json").read_bytes())
+        pins = {tuple(row.split()[:2]): row.split()[2]
+                for row in (ROOT / "scripts/react-server-dom.sri").read_text().splitlines()}
+        for n in ("react-server-dom-webpack", "react-server-dom-turbopack", "react-server-dom-parcel"):
+            for branch, cutoff in enumerate((9, 10, 9, 1)):
+                fixed = f"19.{branch}.{cutoff}"
+                for patch in (cutoff - 1, cutoff):
+                    version = f"19.{branch}.{patch}"
+                    with self.subTest(package=n, version=version):
+                        inv = sample["inventory"]
+                        inv.update(package=n, version=version)
+                        inv["serving_package"].update(package=n, version=version, integrity=pins.get((n, version)))
+                        row = self.check(sample)
+                        if n.endswith("-parcel") and branch == 0:
+                            self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
+                        else:
+                            status = "vendor_fix_present" if patch == cutoff else "affected_version"
+                            self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (status, fixed))
+        legacy = {**sample, "advisory": "CVE-2025-55182"}
+        del legacy["applicability"]["conditions"]["publisher_response_condition_present"]
+        self.assertEqual(self.check(legacy)["patch_status"], "unknown")
+
+    def test_react_october_response_review_is_scoped_to_the_serving_build(self):
+        sample = json.loads((ROOT / "examples/CVE-2026-126187.json").read_bytes())
+        cfg = sample["applicability"]
+        for supports, response, expected in ((True, None, "unknown"), (True, True, "conditions_present"),
+                                              (False, True, "conditions_absent"), (True, False, "unknown"),
+                                              (None, False, "unknown"), (False, False, "conditions_absent"),
+                                              (False, None, "conditions_absent")):
+            cfg["conditions"] = {"server_supports_react_server_components": supports,
+                                 "publisher_response_condition_present": response}
+            row = self.check(sample)
+            self.assertEqual((row["patch_status"], row["applicability"]), ("affected_version", expected))
+        cfg["build"] = "other-image"
+        self.assertEqual(self.check(sample)["applicability"], "unknown")
+
     def test_react_npm_release_boundaries_and_missing_parcel_line(self):
         pins = {}
         for line in (ROOT / "scripts/react-server-dom.sri").read_text().splitlines():
