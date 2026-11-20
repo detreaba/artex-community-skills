@@ -64,6 +64,7 @@ ADVISORIES = {
         "windows": (((19, 0, 0), (19, 0, 9), (19, 1, 0)), ((19, 1, 0), (19, 1, 10), (19, 2, 0)),
                     ((19, 2, 0), (19, 2, 9), (19, 3, 0)), ((19, 3, 0), (19, 3, 1), (19, 4, 0))),
         "conditions": ("server_supports_react_server_components", "publisher_response_condition_present"),
+        "positive_only_conditions": ("publisher_response_condition_present",),
         "sources": ["https://github.com/react/react/security/advisories/GHSA-xqc2-xf4c-x3h3",
                     "https://www.cve.org/CVERecord?id=CVE-2026-126187"],
     },
@@ -78,7 +79,8 @@ ADVISORIES = {
         **CRAFT_PACKAGE, "published": "2025-01-18",
         "windows": (((4, 0, 0), (4, 13, 8), (5, 0, 0)), ((5, 0, 0), (5, 5, 8), (6, 0, 0))),
         "unresolved_range": ((5, 5, 5), (5, 5, 8)),
-        "conditions": ("active_craft_key_compromise_confirmed",), "positive_evidence_only": True,
+        "conditions": ("active_craft_key_compromise_confirmed",),
+        "positive_only_conditions": ("active_craft_key_compromise_confirmed",),
         "sources": [CRAFT_ADVISORIES + "GHSA-x684-96hh-833x", "https://github.com/craftcms/cms/releases/tag/5.5.8"],
     },
     "CVE-2025-32432": {
@@ -218,9 +220,8 @@ def feature_status(profile, config, scope):
     ref = alias(config.get("ref"))
     if not ref or any(config.get(k) != v for k, v in scope.items()):
         return "unknown", None
-    if any(conditions.get(k) is False for k in profile["conditions"]):
-        if profile.get("positive_evidence_only"):
-            return "unknown", ref
+    positive_only = profile.get("positive_only_conditions", ())
+    if any(conditions.get(k) is False for k in profile["conditions"] if k not in positive_only):
         return "conditions_absent", ref
     if profile.get("additional_configuration_undisclosed"):
         return "unknown", ref
@@ -324,7 +325,9 @@ def review(request):
     if advisory in RSC_ADVISORIES:
         limitations.append("The server resolution and installed-content match are operator attestations. "
                            "A framework's bundled copy and other React advisories require their own review.")
-    if profile.get("positive_evidence_only"):
+    if advisory == RSC_OCTOBER:
+        limitations.append("A negative response-condition finding leaves applicability unknown unless the serving build is verified to lack RSC support.")
+    if advisory == "CVE-2025-23209":
         limitations.append("Only a confirmed compromise of the active key establishes this condition. A missing incident record or key rotation alone leaves it unknown.")
     return {
         "advisory": advisory, "package": expected_package, "ecosystem": profile["ecosystem"],
