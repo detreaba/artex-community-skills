@@ -10,6 +10,28 @@ FIRST_FIX = "12.3.0"
 # Published stable PyPI wheels reviewed on 2026-11-19.
 AFFECTED = ("11.0.0", "11.1.0", "11.2.1", "11.3.0", "12.0.0", "12.1.0", "12.1.1", "12.2.0")
 FIXED = (FIRST_FIX, "13.0.0")
+# Raw PIL/ImageCms.py digests from PyPI wheel RECORDs, by native suffix.
+WRAPPER_DIGESTS = {
+    version: {".so": unix_digest, ".pyd": windows_digest}
+    for versions, unix_digest, windows_digest in (
+        (("11.0.0", "11.1.0", "11.2.1"),
+         "c29560d4a9a9e567de08d6c47c650266c8dc595ade8371d9a8c1f24edb65cf5b",
+         "977ffeb66fb55a6ac97ed6f480f7e8868161791ce601f949877a3fe9d3ae7bff"),
+        (("11.3.0",),
+         "0396556938e3c51e8078334dbcafa19aed10a8a38c4ec728bba0540532e86f48",
+         "9cbadbda237ad8036f65c83dfa4a7d9a15a7419515cb3b06f78faa5513e2b2d4"),
+        (("12.0.0", "12.1.0", "12.1.1", "12.2.0"),
+         "22e0a6de05caa5be44bb5927f9307c703f5724b6446bc7e99048f356a00828d9",
+         "e6b0cdf8588b1de6ca9563f690dea36ef0c417d8dc6f7b289a405a0d7f1d15bb"),
+        (("12.3.0",),
+         "dc00c0fe9e2c479ab41f2d3d1adf65e579e67d9786a84328c224b5c6cd6ce883",
+         "0effeeecadc71257d6eabcbd4cf43277ff35c6aeda0e7ba4c60ab67676bf49de"),
+        (("13.0.0",),
+         "9e161faa0807179b599d8fd7fa1de1078010ba34087201e092a77d7c9194b1fc",
+         "7da688dee7037961d3c346ef55a8dfec3a6d787b2c9093e9e6d34a2553a1f702"),
+    )
+    for version in versions
+}
 SOURCES = (
     "https://github.com/python-pillow/Pillow/security/advisories/GHSA-9hw9-ch79-4vh6",
     "https://pillow.readthedocs.io/en/stable/releasenotes/12.3.0.html",
@@ -76,6 +98,11 @@ def assess(inventory, wheel, native, wrapper, scope, refs):
         return "unknown", "Identify the wrapper source actually executed by this worker at import time."
     if not matches_record(wrapper.get("sha256"), wheel.get("wrapper_record_hash")):
         return "unknown", "The imported wrapper digest must match PIL/ImageCms.py in the same wheel's RECORD."
+    if wheel["record_hash"] == wheel["wrapper_record_hash"]:
+        return "unknown", "The native extension and the Python wrapper require distinct wheel RECORD rows."
+    suffix = member[member.rindex("."):]
+    if wrapper["sha256"].lower() != WRAPPER_DIGESTS[version][suffix]:
+        return "unknown", "The wrapper bytes must match the published ImageCms.py for this release and wheel platform."
     if version in AFFECTED:
         return "affected_version", "The imported wrapper and native extension match an affected upstream Pillow release."
     return "vendor_fix_present", "Both ImageCms components match a reviewed release containing the public wrapper fix."
@@ -95,13 +122,17 @@ def review(request):
     refs = {"inventory": alias(inventory.get("ref")), "wheel": alias(wheel.get("ref")),
             "native": alias(native.get("ref")), "wrapper": alias(wrapper.get("ref"))}
     status, reason = assess(inventory, wheel, native, wrapper, scope, refs)
+    limitations = ["The result covers one worker and the public ImageCms wrapper. "
+                   "Application use and direct calls to the private extension require separate review."]
+    if native.get("binding") == "mapped_file":
+        limitations.append("On a mapped native file, the verdict relies on the import-time attestation "
+                           "that the worker executed the supplied wrapper source bytes.")
     return {
         "advisory": ADVISORY, "scope": scope, "patch_status": status, "patch_reason": reason,
         "version": inventory.get("version") if status != "unknown" else None,
         "first_fixed_release": FIRST_FIX if status != "unknown" else None, "applicability": "unknown",
         "evidence_refs": refs, "reviewed": "2026-11-20", "sources": list(SOURCES),
-        "limitations": ["The result covers one worker and the public ImageCms wrapper. "
-                        "Application use and direct calls to the private extension require separate review."],
+        "limitations": limitations,
     }
 
 

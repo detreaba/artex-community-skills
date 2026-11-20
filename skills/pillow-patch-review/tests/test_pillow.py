@@ -12,11 +12,26 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "check.py"
 
 
+# Independent raw Windows wheel digests for the synthetic worker inventory.
+WINDOWS_WRAPPERS = {
+    "11.0.0": "977ffeb66fb55a6ac97ed6f480f7e8868161791ce601f949877a3fe9d3ae7bff",
+    "11.1.0": "977ffeb66fb55a6ac97ed6f480f7e8868161791ce601f949877a3fe9d3ae7bff",
+    "11.2.1": "977ffeb66fb55a6ac97ed6f480f7e8868161791ce601f949877a3fe9d3ae7bff",
+    "11.3.0": "9cbadbda237ad8036f65c83dfa4a7d9a15a7419515cb3b06f78faa5513e2b2d4",
+    "12.0.0": "e6b0cdf8588b1de6ca9563f690dea36ef0c417d8dc6f7b289a405a0d7f1d15bb",
+    "12.1.0": "e6b0cdf8588b1de6ca9563f690dea36ef0c417d8dc6f7b289a405a0d7f1d15bb",
+    "12.1.1": "e6b0cdf8588b1de6ca9563f690dea36ef0c417d8dc6f7b289a405a0d7f1d15bb",
+    "12.2.0": "e6b0cdf8588b1de6ca9563f690dea36ef0c417d8dc6f7b289a405a0d7f1d15bb",
+    "12.3.0": "0effeeecadc71257d6eabcbd4cf43277ff35c6aeda0e7ba4c60ab67676bf49de",
+    "13.0.0": "7da688dee7037961d3c346ef55a8dfec3a6d787b2c9093e9e6d34a2553a1f702",
+}
+
+
 def evidence(version):
     scope = {"asset": "training-gallery", "build": "blue", "worker": "node-3-start-21"}
-    # All bytes and references in this inventory are synthetic.
+    # The worker and native observations are synthetic.
     digest = hashlib.sha256(("fixture extension " + version).encode("ascii")).digest()
-    wrapper = hashlib.sha256(("fixture wrapper " + version).encode("ascii")).digest()
+    wrapper = bytes.fromhex(WINDOWS_WRAPPERS.get(version, "00" * 32))
     return {
         "advisory": "CVE-2026-59205",
         "inventory": {**scope, "ref": "serving-worker", "deployment_verified": True, "origin": "upstream",
@@ -113,6 +128,32 @@ class PillowTests(unittest.TestCase):
                 data = evidence("12.3.0")
                 data[section][field] = value
                 self.verify(data, "unknown")
+
+    def test_distinct_members_and_release_specific_wrapper(self):
+        for target, source in (("wrapper", "native"), ("native", "wrapper")):
+            data = evidence("12.3.0")
+            data[target]["sha256"] = data[source]["sha256"].lower()
+            native_key, wrapper_key = "record_hash", "wrapper_record_hash"
+            if target == "wrapper":
+                data["wheel"][wrapper_key] = data["wheel"][native_key]
+            else:
+                data["wheel"][native_key] = data["wheel"][wrapper_key]
+            self.verify(data, "unknown")
+        data = evidence("12.3.0")
+        old = evidence("12.2.0")
+        data["wrapper"]["sha256"] = old["wrapper"]["sha256"]
+        data["wheel"]["wrapper_record_hash"] = old["wheel"]["wrapper_record_hash"]
+        self.verify(data, "unknown")
+
+    def test_platform_bytes_and_import_time_limit(self):
+        data = evidence("12.3.0")
+        row = self.verify(data, "vendor_fix_present")
+        self.assertTrue(any("import-time attestation" in s for s in row["limitations"]))
+        linux = json.loads((ROOT / "examples/pass.json").read_bytes())
+        data["wrapper"]["sha256"] = linux["wrapper"]["sha256"]
+        data["wheel"]["wrapper_record_hash"] = linux["wheel"]["wrapper_record_hash"]
+        self.verify(data, "unknown")
+        self.verify(linux, "vendor_fix_present")
 
     def test_legacy_native_only_record_remains_readable(self):
         for version in ("12.2.0", "12.3.0"):

@@ -7,19 +7,19 @@
   "wheel": {
     "ref": "verified-wheel-12.2", "pypi_verified": true, "name": "pillow", "version": "12.2.0",
     "member": "PIL/_imagingcms.cpython-312-x86_64-linux-gnu.so",
-    "record_hash": "sha256=IxSul90-rV_yqz2UVJecy9ypUqsv1sNnQ5yOVtFylxQ",
-    "wrapper_record_hash": "sha256=Mr1UCKMDVVIhafugrpRP0oy3WZLeNeAqttqk5_y1Ets"
+    "record_hash": "sha256=Pj1n-xam5UASVXGV7ir0oo8SjKa31OY1EfiyYufmJmo",
+    "wrapper_record_hash": "sha256=IuCm3gXKpb5Eu1kn-TB8cD9XJLZEa8fpkEjzVqAIKNk"
   },
   "native": {
     "asset": "training-images", "build": "release-4", "worker": "worker-1-start-42",
     "ref": "mapped-extension-42", "module": "PIL._imagingcms", "binding": "mapped_file",
     "package_dir_ref": "worker-42-pil",
-    "sha256": "2314ae97dd3ead5ff2ab3d9454979ccbdca952ab2fd6c367439c8e56d1729714"
+    "sha256": "3e3d67fb16a6e54012557195ee2af4a28f128ca6b7d4e63511f8b262e7e6266a"
   },
   "wrapper": {
     "asset": "training-images", "build": "release-4", "worker": "worker-1-start-42",
     "ref": "wrapper-import-42", "module": "PIL.ImageCms", "binding": "imported_source",
     "package_dir_ref": "worker-42-pil",
-    "sha256": "32bd5408a30355522169fba0ae944fd28cb75992de35e02ab6daa4e7fcb512db"
+    "sha256": "22e0a6de05caa5be44bb5927f9307c703f5724b6446bc7e99048f356a00828d9"
   }
 }
