@@ -39,20 +39,24 @@ def _policy_set(policy, kind, category):
     vals = section[category]
     if not isinstance(vals, list):
         return set(), True   # present but null / not a list -> unusable policy
-    if not all(isinstance(v, str) for v in vals):
-        return set(), True   # a non-string element -> unusable policy, read unknown
-    return set(vals), False
+    strings = [v for v in vals if isinstance(v, str)]
+    # Keep the well-formed names so a forbidden token still gaps even when a
+    # sibling element is non-string; the malformed flag only downgrades a non-gap.
+    return set(strings), len(strings) != len(vals)
 
 
-def _category_verdict(record, category, forbidden, required):
+def _category_verdict(record, category, forbidden, required,
+                      forbidden_partial=False, required_partial=False):
     """Verdict for one category. ``forbidden`` is a positive detection across the
     captured direction name-lists -- a forbidden algorithm offered in ANY captured
-    direction is a gap, even if the opposite direction was not captured.
-    ``required`` is checked PER direction: a captured direction offering none of
-    the required set is a gap (SSH negotiates the two directions independently), so
-    a required algorithm present in only one direction is still a gap. Fails
-    closed: when nothing above decided the category and a direction's name-list was
-    not captured, it reads unknown rather than pass."""
+    direction is a gap, even if the opposite direction was not captured and even if
+    part of the forbidden policy list was unreadable (a hit on a well-formed token
+    is definite). ``required`` is checked PER direction: a captured direction
+    offering none of the required set is a gap -- but ONLY when the required list is
+    complete. A partial (``required_partial``) required list cannot prove a miss,
+    because the unreadable element may be the name on offer, so it reads unknown
+    instead. Fails closed: an unresolved malformed/partial policy or record, or a
+    missing direction, reads unknown rather than pass; a definite gap always wins."""
     if record.get("kexinit_read") is not True:
         # No KEXINIT was fully read (false, absent, or non-boolean). A truncated
         # KEXINIT can leave partial name-lists in the record; they are not trusted.
@@ -74,17 +78,21 @@ def _category_verdict(record, category, forbidden, required):
             malformed = True
     if not seen and not clean_directions and not malformed:
         return "unknown"  # the category's name-list(s) were not captured at all
-    # forbidden is a positive detection across every captured direction.
+    # forbidden is a positive detection across every captured direction; a hit is
+    # definite even if part of the forbidden list was unreadable.
     if seen & forbidden:
         return "gap"
     # required is per direction: a fully-parsed direction offering none of the
-    # required set is a definite gap, even when another direction was missing or
-    # malformed. A malformed direction is not used to judge required -- its full
-    # offer is unknown -- so it cannot by itself assert a required gap.
-    if required and any(not (d & required) for d in clean_directions):
+    # required set is a gap -- but only when the required list is complete. A
+    # partial required list cannot prove a miss (the unreadable element may be the
+    # offered name), so it falls through to unknown below. A malformed direction is
+    # not used to judge required -- its full offer is unknown.
+    if required and not required_partial and \
+            any(not (d & required) for d in clean_directions):
         return "gap"
-    # a malformed or missing direction means a clean pass cannot be confirmed.
-    if malformed or incomplete:
+    # nothing was a definite gap; a malformed/partial policy or record, or a
+    # missing direction, means a clean pass cannot be confirmed -> unknown.
+    if malformed or incomplete or forbidden_partial or required_partial:
         return "unknown"
     return "pass"
 
@@ -128,11 +136,11 @@ def evaluate(record):
         if not forbidden and not required and not f_bad and not r_bad:
             continue  # the operator expressed no policy for this category
         # Judge with whatever is well-formed; a malformed half never masks a gap,
-        # it only downgrades an otherwise-clean verdict to unknown.
-        verdict = _category_verdict(record, cat, forbidden, required)
-        if verdict != "gap" and (f_bad or r_bad):
-            verdict = "unknown"
-        per_category[cat] = verdict
+        # it only downgrades an otherwise-clean verdict to unknown (handled inside
+        # _category_verdict via the partial flags).
+        per_category[cat] = _category_verdict(record, cat, forbidden, required,
+                                              forbidden_partial=f_bad,
+                                              required_partial=r_bad)
 
     verdicts = list(per_category.values())
     if any(v == "gap" for v in verdicts):

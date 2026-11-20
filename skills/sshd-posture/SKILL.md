@@ -85,11 +85,15 @@ directions independently, so:
   distinct from an omitted field: it offers nothing, so it fails a `required`
   check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction
   reads `unknown`;
-- a captured name-list carrying a **non-string element** is malformed → `unknown`
-  (a forbidden algorithm positively seen among the valid names still decides
-  `gap`); likewise a policy category or section that is present but **null**, or
-  not a list of strings, is malformed → `unknown`, while one that is simply absent
-  is no constraint.
+- a captured name-list, or a policy list, carrying a **non-string element** keeps
+  its valid names — a forbidden name among them still decides `gap` — and is
+  otherwise malformed → `unknown`; a policy category or section that is present but
+  **null** or not a list is unusable → `unknown`; one that is simply absent, or an
+  **empty** `forbidden`/`required` list, is no constraint. A malformed or unknown
+  policy bit never masks a definite `gap`. The one asymmetry: a partial `required`
+  list cannot *prove* a miss (the unreadable element may be the offered name), so a
+  required-miss against it reads `unknown`, not `gap`; a hit against a partial
+  `forbidden` list is still a definite `gap`.
 
 Matching is **exact token equality** and case-sensitive (RFC 4251 §6): a policy
 name matches an offered name only when the whole tokens are identical, never by

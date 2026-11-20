@@ -440,6 +440,46 @@ class VerdictRules(unittest.TestCase):
                          "required": {"cipher": None}}
         self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "gap")
 
+    def test_well_formed_forbidden_token_gaps_despite_non_string_sibling(self):
+        # F-SSH-17: forbidden.cipher = ["3des-cbc", null] -- a well-formed forbidden
+        # token next to a non-string sibling. The valid token still gaps on an
+        # offered 3des-cbc; a malformed sibling must not discard the whole list.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": ["3des-cbc", None]}}
+        out = check.evaluate(rec)
+        self.assertEqual(out["per_category"]["cipher"], "gap")
+        self.assertEqual(out["overall"], "gap")
+
+    def test_policy_list_with_only_non_string_is_unknown(self):
+        # Contrast: a forbidden list with NO well-formed name ([null]) is unusable
+        # -> unknown (nothing to match), never a false pass.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["policy"] = {"forbidden": {"cipher": [None]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_partial_required_list_cannot_prove_a_miss(self):
+        # Asymmetry: required.cipher = [chacha20, null] with an offer of only
+        # aes256-gcm. The unreadable element may have been aes256-gcm, so a miss is
+        # not provable -> unknown, NOT a false gap (unlike the forbidden side).
+        rec = self._rec(encryption_c2s=["aes256-gcm@openssh.com"],
+                        encryption_s2c=["aes256-gcm@openssh.com"])
+        rec["policy"] = {"required": {"cipher": ["chacha20-poly1305@openssh.com", None]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown")
+
+    def test_complete_required_list_proves_a_miss(self):
+        # Control: the SAME miss against a COMPLETE required list IS a gap.
+        rec = self._rec(encryption_c2s=["aes256-gcm@openssh.com"],
+                        encryption_s2c=["aes256-gcm@openssh.com"])
+        rec["policy"] = {"required": {"cipher": ["chacha20-poly1305@openssh.com"]}}
+        self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "gap")
+
+    def test_empty_policy_list_is_no_constraint(self):
+        # An empty required (or forbidden) list, like an absent one, constrains
+        # nothing -- the category is not judged.
+        rec = self._rec()
+        rec["policy"] = {"required": {"cipher": []}}
+        self.assertNotIn("cipher", check.evaluate(rec)["per_category"])
+
     def test_absent_policy_category_is_no_constraint(self):
         # Control for F-SSH-16: a category simply ABSENT (not null) is no
         # constraint -- an unrelated offer is not judged against it.
