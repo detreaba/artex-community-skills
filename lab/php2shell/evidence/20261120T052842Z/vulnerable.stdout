@@ -1,0 +1,13 @@
+--- pocs/php2shell-618.py
+109618 phase1=5439 total=62929 n=149 blob=288 call=0x555555acf590
+status HTTP/1.1 200 OK
+sapi PHP/8.3.36
+bytes 279 time 4.36s command_in_body False
+b'FIXTURE-OK\n'
+--- pocs/php2shell-619.py
+109619 phase1=57589 total=67975 n=149 blob=288 call=0x555555acf590
+status HTTP/1.1 200 OK
+sapi PHP/8.3.36
+bytes 279 time 4.36s command_in_body False
+b'FIXTURE-OK\n'
+# VERDICT: inconclusive no execution on vulnerable half (shape/timing)

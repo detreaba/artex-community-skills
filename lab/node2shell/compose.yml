@@ -1,0 +1,10 @@
+services:
+  vulnerable:
+    image: node:24.22.0
+    # fixture decodes inbound bodies with the bundled brotli path (advisory-described trigger surface)
+    command: ["node", "-e", "require('http').createServer((q,s)=>{let b=[];q.on('data',d=>b.push(d)).on('end',()=>{try{require('zlib').brotliDecompress(Buffer.concat(b),(e,r)=>s.end(e?('ERR:'+e.message):('OK:'+r.length)))}catch(e){s.end('EX:'+e.message)}})}).listen(8080)"]
+    ports: ["127.0.0.1:8083:8080"]
+  patched:
+    image: node:24.22.1
+    command: ["node", "-e", "require('http').createServer((q,s)=>{let b=[];q.on('data',d=>b.push(d)).on('end',()=>{try{require('zlib').brotliDecompress(Buffer.concat(b),(e,r)=>s.end(e?('ERR:'+e.message):('OK:'+r.length)))}catch(e){s.end('EX:'+e.message)}})}).listen(8080)"]
+    ports: ["127.0.0.1:8084:8080"]

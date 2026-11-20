@@ -1,0 +1,5 @@
+slug	action	detail	since
+php2shell	run	probes/php2shell-exec.sh after fixture-profile switch (owner working it)	2026-11-20T05:40Z
+node2shell	run	probes/br-behavior.py — re-record after next shape tweak	2026-11-20T05:40Z
+general	verify	diff any new evidence dir against the prior one for the same slug; report deltas	2026-11-20T05:40Z
+# re-measure per build: run maps-extract after image change

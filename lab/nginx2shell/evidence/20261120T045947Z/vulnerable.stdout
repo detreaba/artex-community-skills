@@ -1,0 +1,2 @@
+RESPONSE 309 bytes first=b'HTTP/1.1 400 Bad Request\r\nServer: nginx/1.31.8\r\nDate: Fri, 20 No'
+# VERDICT: inconclusive response without worker loss on vulnerable half

@@ -1,0 +1,9 @@
+services:
+  vulnerable:
+    image: ruby:3.3.12
+    command: ["sh", "-c", "gem install webrick --no-document && ruby -run -e httpd /tmp -p 8080"]
+    ports: ["127.0.0.1:8087:8080"]
+  patched:
+    image: ruby:3.3.13
+    command: ["sh", "-c", "gem install webrick --no-document && ruby -run -e httpd /tmp -p 8080"]
+    ports: ["127.0.0.1:8088:8080"]

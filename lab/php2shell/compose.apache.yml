@@ -1,0 +1,13 @@
+services:
+  vulnerable:
+    image: php:8.5.12-apache
+    security_opt: ["seccomp:unconfined"]
+    command: ["setarch", "-R", "docker-php-entrypoint", "apache2-foreground"]
+    volumes: ["./fixture/:/var/www/html/"]
+    ports: ["127.0.0.1:8091:80"]
+  patched:
+    image: php:8.5.13-apache
+    security_opt: ["seccomp:unconfined"]
+    command: ["setarch", "-R", "docker-php-entrypoint", "apache2-foreground"]
+    volumes: ["./fixture/:/var/www/html/"]
+    ports: ["127.0.0.1:8092:80"]
