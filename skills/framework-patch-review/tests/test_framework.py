@@ -15,7 +15,9 @@ DJANGO_CACHE = "CVE-2026-113593"
 DJANGO_ADMIN = "CVE-2026-113733"
 DRUPAL = "CVE-2026-132165"
 DRUPAL_018 = "CVE-2026-132166"
+LIVEWIRE = "CVE-2025-54068"
 PACKAGES = {
+    LIVEWIRE: ("composer", "livewire/livewire"),
     CACHE_BINARY: ("npm", "next"),
     CACHE_NESTED: ("npm", "next"),
     SYMFONY: ("composer", "symfony/http-foundation"),
@@ -75,6 +77,41 @@ class FrameworkTests(unittest.TestCase):
                         self.assertEqual(result["applicability"], "unknown")
                         self.assertEqual(result["evidence_refs"]["inventory"], "image-inventory-70")
                         self.assertTrue(any(u.startswith("https://") for u in result["sources"]))
+
+    def test_livewire_published_releases_and_fix_boundary(self):
+        for versions, verdict, first_fix in (
+            (("v3.0.0-beta.1", "3.0.0-beta.11", "3.0.0", "3.6.2", "3.6.3"), "affected_version", "3.6.4"),
+            (("v3.6.4", "3.7.0"), "vendor_fix_present", "3.6.4"),
+            (("0.0.1", "1.0.0", "2.12.8", "v4.0.0"), "outside_affected_range", None),
+            (("3.0.0-beta.12", "3.7.0-beta.1", "3.6.5", "2.99.0", "5.0.0", "^3.6.4"), "unknown", None),
+        ):
+            for version in versions:
+                with self.subTest(version=version):
+                    row = self.check(deployment(LIVEWIRE, version))
+                    self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), (verdict, first_fix))
+
+    def test_livewire_requires_installed_upstream_package(self):
+        for fields in ({"origin": "custom"}, {"origin": "distribution"}, {"deployment_verified": False},
+                       {"package": "laravel/framework"}, {"ecosystem": "npm"}, {"ref": ""}):
+            with self.subTest(fields=fields):
+                row = self.check(deployment(LIVEWIRE, "3.6.4", **fields))
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"]), ("unknown", None))
+
+    def test_livewire_scope_and_undisclosed_configuration(self):
+        sample = json.loads((ROOT / "examples" / f"{LIVEWIRE}.json").read_bytes())
+        self.assertEqual(self.check(sample)["version"], "3.6.3")
+        for value, same_build, expected in (
+            (True, True, "unknown"), (False, True, "conditions_absent"),
+            (False, False, "unknown"), (None, True, "unknown"),
+        ):
+            with self.subTest(value=value, same_build=same_build):
+                config = dict(sample["applicability"], conditions={"livewire_component_mounted": value})
+                if not same_build:
+                    config["build"] = "another-release"
+                row = self.check({**sample, "applicability": config})
+                self.assertEqual((row["patch_status"], row["first_fixed_in_range"], row["applicability"]),
+                                 ("affected_version", "3.6.4", expected))
+                self.assertEqual(row["evidence_refs"]["configuration"], config["ref"] if same_build else None)
 
     def test_two_next_advisories_have_different_lower_bounds(self):
         for version, binary, nested in (
