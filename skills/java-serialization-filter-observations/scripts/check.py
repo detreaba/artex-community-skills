@@ -80,6 +80,7 @@ def review(data):
     counts = {"filter_present": 0, "filter_absent": 0, "unusable": 0}
     loss_count = 0
     identity = None
+    identity_conflict = False
     for event in events:
         kind = event.get("type") if isinstance(event, dict) else None
         if kind == "jdk.DataLoss":
@@ -88,13 +89,18 @@ def review(data):
         if kind == "jdk.JVMInformation":
             current = jvm_identity(event.get("values"))
             if current is None or (identity is not None and current != identity):
-                result["reason"] = "The JVM information records cannot establish one consistent process and start."
-                return result
-            identity = current
+                identity_conflict = True
+            else:
+                identity = current
             continue
         key = observation(event)
         if key is not None:
             counts[key] += 1
+    if identity_conflict:
+        result["reason"] = "The JVM information records cannot establish one consistent process and start."
+        if counts["filter_absent"]:
+            result["reason"] += " This export contains a check without a stream filter that cannot be attributed to the named JVM."
+        return result
     result["observations"] = counts
     result["data_loss_events"] = loss_count
     if complete is False or includes_loss is False or loss_count or counts["unusable"]:

@@ -100,6 +100,19 @@ class ObservationTests(unittest.TestCase):
                 self.assertEqual((row["status"], row["observations"], row["export_coverage"]), ("unknown", None, "unknown"))
                 self.assertNotIn(stamp, json.dumps(row))
 
+    def test_unattributed_absence_is_reported_in_either_event_order(self):
+        stamp = "2026-11-19T09:01:02.100Z"
+        a, b = ({"type": "jdk.JVMInformation", "values": {"pid": pid, "jvmStartTime": stamp}} for pid in (10, 11))
+        for check, expected in ((event(False, None), True), (event(True, "ALLOWED"), False),
+                                (event(False, "ALLOWED"), False)):
+            for records in ((a, b, check), (check, b, a), (a, check, b)):
+                row = self.review(request(*records))
+                self.assertEqual(row["status"], "unknown")
+                self.assertEqual(row["export_coverage"], "unknown")
+                self.assertIsNone(row["observations"])
+                self.assertIsNone(row["data_loss_events"])
+                self.assertEqual("cannot be attributed to the named JVM" in row["reason"], expected)
+
     def test_generation_and_attribution_required(self):
         for k, v in (("asset", ""), ("build", " "), ("instance", None), ("ref", "/tmp/private"),
                      ("jdk_major", 17), ("jdk_major", "21"), ("jdk_major", 21.0),
