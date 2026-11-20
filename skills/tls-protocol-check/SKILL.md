@@ -26,8 +26,10 @@ Reads one JSON request on stdin and prints an observation record:
 ```
 
 - **One endpoint per run.** `authorization_ref` is required. A list, range or
-  wildcard host, a missing `authorization_ref`, or an unknown version gives an
-  `invalid_input` record and no connection is made.
+  wildcard host, a pinned `address` that is not an IP literal, a missing
+  `authorization_ref`, or an unknown version gives an `invalid_input` record and
+  no connection is made. The optional `address` pins which resolved IP to
+  observe, so it must be an IP, not a hostname.
 - It resolves the name once and records every address, then uses one address
   (the pinned `address` if given) for every attempt.
 - For each listed version it sends one ClientHello offering **only** that

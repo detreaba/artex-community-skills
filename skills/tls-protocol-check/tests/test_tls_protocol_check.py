@@ -181,6 +181,36 @@ class ObserveGuards(unittest.TestCase):
                                     "policy": {"must_refuse": ["1.4"]}})
         self.assertIn("unknown TLS version", err)
 
+    def test_rejects_hostname_pinned_address(self):
+        # A hostname in `address` would let create_connection re-resolve and
+        # fan out past the connection cap; only an IP literal is allowed.
+        for addr in ("evil.example", "127.0.0.1 ", "10.0.0.0/24", ["127.0.0.1"], 4321):
+            _, err = observe._validate({"authorization_ref": "x",
+                                        "target": {"host": "127.0.0.1", "port": 443, "address": addr},
+                                        "policy": {"must_refuse": ["1.0"]}})
+            self.assertIsNotNone(err)
+            self.assertIn("IP literal", err)
+
+    def test_accepts_ip_pinned_address(self):
+        for addr in ("203.0.113.5", "::1"):
+            valid, err = observe._validate({"authorization_ref": "x",
+                                            "target": {"host": "host.example", "port": 443, "address": addr},
+                                            "policy": {"must_refuse": ["1.0"]}})
+            self.assertIsNone(err, addr)
+            self.assertIsNotNone(valid)
+
+    def test_rejects_non_object_policy(self):
+        _, err = observe._validate({"authorization_ref": "x",
+                                    "target": {"host": "127.0.0.1", "port": 443},
+                                    "policy": "must refuse everything"})
+        self.assertIn("policy must be an object", err)
+
+    def test_rejects_non_string_sni(self):
+        _, err = observe._validate({"authorization_ref": "x",
+                                    "target": {"host": "127.0.0.1", "port": 443, "sni": 1234},
+                                    "policy": {"must_refuse": ["1.0"]}})
+        self.assertIn("sni", err)
+
     def test_accepts_well_formed_request(self):
         valid, err = observe._validate({"authorization_ref": "ref",
                                         "target": {"host": "127.0.0.1", "port": 8443, "sni": "fixture.local"},

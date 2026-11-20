@@ -12,12 +12,13 @@ endpoint, sends no application data, and prints an observation record that
 ``scripts/check.py`` reads offline. Standard library only; Python 3.9+.
 
 Scope and safety. One endpoint the operator names per run; ``authorization_ref``
-is mandatory; a list, range or wildcard host is ``invalid_input``. Build and
-verify it against loopback fixtures only and never point it at a host you are
-not authorized to observe. It carries no exploit payload: it offers one TLS
+is mandatory; a list, range or wildcard host, or a pinned ``address`` that is
+not an IP literal, is ``invalid_input``. Build and verify it against loopback
+fixtures only and never point it at a host you are not authorized to observe. It carries no exploit payload: it offers one TLS
 version per connection and records how the service replied.
 """
 import hashlib
+import ipaddress
 import json
 import socket
 import ssl
@@ -49,6 +50,14 @@ def _fail(reason):
             "error": "invalid_input", "reason": reason}
 
 
+def _is_ip(value):
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
 def _validate(req):
     if not isinstance(req, dict):
         return None, "request is not a JSON object"
@@ -66,7 +75,17 @@ def _validate(req):
     port = target.get("port")
     if isinstance(port, bool) or not isinstance(port, int) or not (1 <= port <= 65535):
         return None, "target.port must be an integer 1..65535"
-    policy = req.get("policy") or {}
+    sni = target.get("sni")
+    if sni is not None and not isinstance(sni, str):
+        return None, "target.sni must be a string"
+    address = target.get("address")
+    if address is not None and not (isinstance(address, str) and _is_ip(address)):
+        return None, "target.address must be an IP literal (pin the resolved IP, not a hostname)"
+    policy = req.get("policy")
+    if policy is None:
+        policy = {}
+    if not isinstance(policy, dict):
+        return None, "policy must be an object"
     must_refuse = policy.get("must_refuse") or []
     must_accept = policy.get("must_accept") or []
     if not isinstance(must_refuse, list) or not isinstance(must_accept, list):
@@ -117,10 +136,10 @@ def _context(low, high):
 def _handshake(address, port, sni, low, high, read_after=False):
     """Make exactly one connection; return (class, detail)."""
     detail = {"negotiated": None, "reason": None, "cert_sha256": None, "notes": []}
-    ctx = _context(low, high)
     sock = None
     ssock = None
     try:
+        ctx = _context(low, high)
         sock = socket.create_connection((address, port), timeout=TIMEOUT)
         sock.settimeout(TIMEOUT)
         ssock = ctx.wrap_socket(sock, server_hostname=sni)
@@ -152,6 +171,9 @@ def _handshake(address, port, sni, low, high, read_after=False):
     except ConnectionResetError:
         detail["reason"] = "connection_reset"
         return "closed", detail
+    except ValueError as exc:
+        detail["reason"] = "context: %s" % exc
+        return "client_cannot_offer", detail
     except OSError as exc:
         klass, reason = _classify(exc)
         detail["reason"] = reason
@@ -228,7 +250,7 @@ def observe(req):
                                    ssl.TLSVersion.TLSv1, ssl.TLSVersion.TLSv1_3)
         made += 1
         record["control"] = {"class": klass, "negotiated": detail["negotiated"],
-                             "reason": detail["reason"]}
+                             "reason": detail["reason"], "cert_sha256": detail["cert_sha256"]}
 
     record["connections_made"] = made
     return record
