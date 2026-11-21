@@ -103,32 +103,27 @@ def _read_identification(sock, deadline):
     test, and once selected the line is never revisited (OpenSSH likewise does not
     return to an earlier line). Its content is advisory only here: this skill does
     not parse or validate the ``protoversion``/``softwareversion``, so the KEXINIT
-    that follows such a banner is still read. Bounded by the
-    observation deadline and a per-line length cap (memory), not a line count or
-    total size -- consistent with the KEXINIT read. Returns (banner_bytes,
-    leftover_bytes), where ``leftover`` is whatever followed the identification
-    line's newline (often the start of the binary KEXINIT), or (None, b"") on the
-    deadline, EOF, or an over-long line.
+    that follows such a banner is still read.
+
+    The reader is single-pass over the byte stream, carrying its line state across
+    ``recv`` boundaries, so the result is a function of the bytes alone -- never of
+    how they are segmented. A line's content is capped at ``MAX_IDENT_LINE`` (the
+    non-CR bytes before its terminator). A run of CRs is held as a COUNT: a following
+    LF discards it, so any number of trailing CRs may precede the LF (F-SSH-34, as
+    OpenSSH allows); a following content byte materialises the run back into the line
+    ahead of itself and counts it toward the cap. The count is checked before it is
+    materialised, so a CR flood costs O(1) memory and never grows the line. A CR that
+    is not followed by an LF therefore stays in the (advisory) banner, as before.
+    Bounded by the observation deadline and the per-line content cap, not a line count
+    or total size. Returns (banner_bytes, leftover_bytes), where ``leftover`` is
+    whatever followed the identification line's LF in the current chunk (the caller
+    reads the rest of the KEXINIT), or (None, b"") on the deadline, EOF, or a line
+    whose content exceeds the cap.
     """
-    buf = bytearray()
+    content = bytearray()  # the current line's content: trailing CRs dropped, but a CR
+                           # followed by content is kept, so it stays advisory
+    pending_cr = 0         # a run of CRs since the last content byte, held as a count
     while True:
-        while b"\n" in buf:
-            idx = buf.index(b"\n")
-            raw = bytes(buf[:idx]).rstrip(b"\r")
-            del buf[:idx + 1]
-            if len(raw) > MAX_IDENT_LINE:
-                # a completed line whose content exceeds the cap: OpenSSH's reader
-                # sends it to `invalid`, so the exchange reads unknown. Checked per
-                # completed line (not just the buffer) so the verdict never depends on
-                # how recv() happened to segment the stream.
-                return None, b""
-            if len(raw) > 4 and raw.startswith(b"SSH-"):
-                return raw, bytes(buf)
-            # a pre-banner line (including a bare "SSH-"): discard and keep scanning
-        if len(buf) > MAX_IDENT_LINE + 1:
-            # an unterminated line past the cap (+1 tolerates one pending CR before its
-            # LF arrives). Bounds memory even for a stream that never sends an LF.
-            return None, b""
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None, b""
@@ -139,7 +134,24 @@ def _read_identification(sock, deadline):
             return None, b""
         if not chunk:
             return None, b""
-        buf.extend(chunk)
+        for i, c in enumerate(chunk):
+            if c == 0x0d:  # CR: held as a count, dropped if the line ends at the next LF
+                pending_cr += 1
+                continue
+            if c == 0x0a:  # LF ends the line; a trailing CR run (pending_cr) is dropped
+                raw = bytes(content)
+                if len(raw) > 4 and raw.startswith(b"SSH-"):
+                    return raw, bytes(chunk[i + 1:])
+                content = bytearray()  # a pre-banner line (incl. a bare "SSH-" / empty)
+                pending_cr = 0
+                continue
+            # a content byte: any pending CR run is now mid-line, ahead of it, and counts
+            if len(content) + pending_cr + 1 > MAX_IDENT_LINE:
+                return None, b""  # the line's content would exceed the cap
+            if pending_cr:
+                content.extend(b"\r" * pending_cr)
+                pending_cr = 0
+            content.append(c)
 
 
 def _client_kexinit():

@@ -1268,6 +1268,71 @@ class LoopbackParser(unittest.TestCase):
             rec = observe.observe(_req(fx.port, pol))
         self.assertEqual(check.evaluate(rec)["overall"], "pass")
 
+    def test_cr_run_before_lf_is_a_function_of_the_bytes_not_segmentation(self):
+        # F-SSH-34: a run of CRs before the LF (any number) is dropped like a single
+        # trailing CR -- held as a count, not accumulated -- so an 8192-content line
+        # followed by extra CRs is still read, and the verdict is a function of the
+        # bytes, not of how recv() segments them. A real listener cannot control chunk
+        # boundaries, so this drives observe() through a scripted socket.
+        forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                             hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                             mac=["hmac-sha2-256-etm@openssh.com"])
+        ident = b"SSH-2.0-OpenSSH_9.6\r\n"
+
+        class _FakeSock:
+            def __init__(self, chunks):
+                self._c = [bytes(x) for x in chunks]
+                self._i = 0
+
+            def settimeout(self, t):
+                pass
+
+            def sendall(self, b):
+                pass
+
+            def recv(self, n):
+                if self._i >= len(self._c):
+                    return b""
+                c = self._c[self._i]
+                self._i += 1
+                return c
+
+            def close(self):
+                pass
+
+        def verdict(stream, chunks, policy=POLICY):
+            fake = _FakeSock(chunks)
+            orig = observe.socket.create_connection
+            observe.socket.create_connection = lambda *a, **k: fake
+            try:
+                rec = observe.observe(_req(1, policy))
+            finally:
+                observe.socket.create_connection = orig
+            return check.evaluate(rec)["overall"]
+
+        # Grok's delivery: 8192 content + two CRs + LF, with the CRs and the LF in
+        # SEPARATE reads (the path that aborted at the previous `> 8192 + 1` bound).
+        grok = b"y" * 8192 + b"\r\r\n" + ident + forb
+        self.assertEqual(verdict(grok, [grok]), "gap")
+        self.assertEqual(verdict(grok, [grok[:8194], grok[8194:]]), "gap")  # CRs | LF
+        # Content of 8194 (8190 + three mid CRs + one byte) exceeds 8192 either way.
+        edge = b"y" * 8190 + b"\r\r\r" + b"z\r\n" + ident + forb
+        self.assertEqual(verdict(edge, [edge]), "unknown")
+        self.assertEqual(verdict(edge, [edge[:8193], edge[8193:]]), "unknown")
+        # A CR flood before the LF costs O(1) memory and still reads the identification.
+        flood = b"\r" * 9000 + b"\n" + ident + forb
+        self.assertEqual(
+            verdict(flood, [flood[i:i + 256] for i in range(0, len(flood), 256)]), "gap")
+        # A clean server behind the same split delivery reads pass (unknown -> pass).
+        clean = build_kexinit(kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+                              enc=["chacha20-poly1305@openssh.com"],
+                              mac=["hmac-sha2-256-etm@openssh.com"])
+        pol = {"forbidden": {"kex": ["diffie-hellman-group1-sha1"]},
+               "required": {"kex": ["curve25519-sha256"],
+                            "mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        gc = b"y" * 8192 + b"\r\r\n" + ident + clean
+        self.assertEqual(verdict(gc, [gc[:8194], gc[8194:]], pol), "pass")
+
     def test_many_pre_banner_lines_then_identification(self):
         # F-SSH-7: 80 valid CRLF pre-banner lines (~9.9 KB, over the old 64-line /
         # 8 KiB cap), then the SSH- identification and a KEXINIT on the same send ->
