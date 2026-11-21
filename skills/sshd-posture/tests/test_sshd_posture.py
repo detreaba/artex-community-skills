@@ -1068,6 +1068,66 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(rec["software"], "OpenSSH_9.6")
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
 
+    def test_cr_only_identification_terminator_is_unknown(self):
+        # F-SSH-32: the identification line ends at LF. A CR-only terminator
+        # ("SSH-2.0-OpenSSH_9.6\r" with no LF) does NOT end the line -- the observer
+        # reads on to the next LF, the first 0x0a inside the binary KEXINIT, so the
+        # offer misframes and reads unknown (fail-closed). OpenSSH's reader likewise
+        # sends a CR-not-followed-by-LF to `invalid` (kex.c rev 1.198), so neither
+        # reads a KEXINIT after a CR-only terminator. RFC 4253 4.2's terminator is
+        # CR LF; CR-only is non-conformant. LF-only (F-SSH-8) and CR LF both gap.
+        kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\r", kexinit, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertFalse(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+
+    def test_cr_within_identification_line_is_advisory(self):
+        # F-SSH-32 (content-advisory half): a CR that appears WITHIN the line, followed
+        # by more bytes and then an LF ("SSH-2.0-OpenSSH_9.6\rX\n"), still ends at the
+        # LF. observe.py keeps the embedded CR in the advisory banner but reads the
+        # KEXINIT after the LF -> the real offer decides (gap for a forbidden kex, pass
+        # for a clean one). This is more lenient than OpenSSH (which would invalidate
+        # the byte after the CR), but it never reads a false clean: the verdict is the
+        # offer actually captured.
+        forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                             hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                             mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\rX\n", forb, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+        clean = build_kexinit(kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+                              enc=["chacha20-poly1305@openssh.com"],
+                              mac=["hmac-sha2-256-etm@openssh.com"])
+        pol = {"forbidden": {"kex": ["diffie-hellman-group1-sha1"]},
+               "required": {"kex": ["curve25519-sha256"],
+                            "mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        with Fixture(b"SSH-2.0-OpenSSH_9.6\rX\n", clean, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, pol))
+        self.assertEqual(check.evaluate(rec)["overall"], "pass")
+
+    def test_bom_prefixed_identification_is_unknown_but_bom_own_line_gaps(self):
+        # Pre-empts the BOM cell: a UTF-8 BOM glued onto the identification
+        # ("\xef\xbb\xbfSSH-2.0-...") makes the line NOT begin with "SSH-", so it is a
+        # pre-banner line and is skipped; with no later valid identification the offer
+        # reads unknown (OpenSSH also fails here -- the KEXINIT's NUL bytes are
+        # `invalid`). The SAME BOM as its own pre-banner line, before a clean
+        # identification, is skipped and the identification is read -> gap.
+        forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                             hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                             mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"\xef\xbb\xbfSSH-2.0-OpenSSH_9.6\r\n", forb, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertFalse(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+        with Fixture(b"\xef\xbb\xbf\r\nSSH-2.0-OpenSSH_9.6\r\n", forb, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
     def test_pre_banner_line_containing_ssh_substring_is_not_identification(self):
         # F-SSH-9: a pre-banner line that merely CONTAINS "SSH-" after other text
         # ("Note: SSH-2.0-decoy") must be discarded; the identification is the next

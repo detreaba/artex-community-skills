@@ -67,6 +67,19 @@ Reads one JSON request on stdin and prints an observation record:
   observation reads `unknown` (a non-conformant server, fail-closed — not a false
   clean). This is distinct from a blank/other line *before* the `SSH-` line, which
   §4.2 permits and the observer skips.
+- The identification line is terminated by **LF** (`\n`); a CR immediately before it
+  is stripped, so both the RFC `CR LF` and a bare `LF` (F-SSH-8) end the line — as in
+  OpenSSH's reader (`if (c=='\r'){expect_nl=1;continue;} if (c=='\n') break;`, `kex.c`
+  rev 1.198). A **CR-only** terminator (a CR with no following LF) does *not* end the
+  line (F-SSH-32): the observer reads on to the next LF — the first `0x0a` byte inside
+  the binary KEXINIT — so the offer misframes and reads `unknown` (fail-closed).
+  OpenSSH likewise does not read a KEXINIT after a CR-only terminator — a CR not
+  followed by LF is sent to `invalid` there. A CR *within* a line followed by more
+  bytes and then an LF is kept in the advisory banner and does not change the verdict
+  (the KEXINIT after the LF is still read). A line that does not begin with `SSH-`
+  because a BOM or other bytes precede it (`\xef\xbb\xbfSSH-2.0-…`) is a pre-banner
+  line and is skipped; if no later line is a valid identification the offer reads
+  `unknown`.
 - It then closes. It **never** authenticates, completes key exchange, opens a
   channel, or sends application data, and carries no exploit payload.
 
