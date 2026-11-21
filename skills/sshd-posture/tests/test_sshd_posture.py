@@ -691,16 +691,22 @@ class VerdictRules(unittest.TestCase):
         self.assertTrue(any("invalid_input" in n for n in out.get("notes", [])),
                         "the error/reason should be surfaced in notes")
 
-    def test_non_boolean_kexinit_read_is_unknown(self):
-        # The kexinit_read gate requires boolean True (F-SSH-16); a forged
-        # "kexinit_read": 1 or "true" with a captured forbidden cipher still reads
-        # unknown. This keeps the "a gap wins under an error" argument safe: name-lists
-        # are only trusted when the KEXINIT was genuinely parsed.
-        for flag in (1, "true"):
-            rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+    def test_only_boolean_true_kexinit_read_is_trusted(self):
+        # F-SSH-28 / F-SSH-16: the gate requires JSON boolean True -- the one value
+        # observe.py writes once a KEXINIT is fully parsed. A non-boolean 1 / "true",
+        # or the truthy-but-negative "false", reads unknown even with a captured
+        # forbidden cipher; only boolean True lets it gap. The flag is the single
+        # statement that the name-lists are complete, so it cannot be coerced.
+        for flag in (1, "true", "false"):
+            rec = self._rec(encryption_c2s=["3des-cbc"],
+                            encryption_s2c=["chacha20-poly1305@openssh.com"])
             rec["kexinit_read"] = flag
             self.assertEqual(check.evaluate(rec)["overall"], "unknown",
                              "kexinit_read=%r must gate to unknown" % (flag,))
+        gap_rec = self._rec(encryption_c2s=["3des-cbc"],
+                            encryption_s2c=["chacha20-poly1305@openssh.com"])
+        gap_rec["kexinit_read"] = True
+        self.assertEqual(check.evaluate(gap_rec)["overall"], "gap")
 
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))

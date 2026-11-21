@@ -88,8 +88,13 @@ directions independently, so:
   direction offering none of the required set is a `gap`, so a required algorithm
   present in only one direction is still a `gap` (fail-closed, not the union);
 - otherwise `pass`;
-- when **no KEXINIT was read** (`kexinit_read` false or absent) the offer was not
-  captured, so every category reads `unknown` and the name-lists are not consulted;
+- the name-lists are consulted only when `kexinit_read` is **JSON boolean `true`**
+  — the one value `observe.py` writes once a KEXINIT is fully parsed (it also writes
+  `false`, beside possibly-partial lists, on a truncated read). Any other value
+  (`false`, absent, or a non-boolean such as `1` / `"true"` / `"false"`) means the
+  offer was not confirmed captured, so every category reads `unknown` and the
+  name-lists are not consulted. "Captured" throughout means a name-list read under a
+  boolean-`true` flag;
 - within a read KEXINIT, a direction whose name-list is **missing** → `unknown`,
   **unless** a captured direction already shows a forbidden algorithm or is missing
   a required one, which still decides `gap`;
