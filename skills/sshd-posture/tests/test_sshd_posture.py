@@ -1071,7 +1071,7 @@ class LoopbackParser(unittest.TestCase):
     def test_pre_banner_line_containing_ssh_substring_is_not_identification(self):
         # F-SSH-9: a pre-banner line that merely CONTAINS "SSH-" after other text
         # ("Note: SSH-2.0-decoy") must be discarded; the identification is the next
-        # line that BEGINS with "SSH-".
+        # line that begins with "SSH-" (and is longer than four bytes -- see F-SSH-31).
         banner = b"Note: SSH-2.0-decoy\r\nSSH-2.0-OpenSSH_9.6\r\n"
         kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
                                 hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
@@ -1082,6 +1082,70 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(rec["software"], "OpenSSH_9.6")
         self.assertNotIn("decoy", rec.get("banner") or "")
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_bare_SSH_prefix_line_is_skipped_openssh_rule(self):
+        # F-SSH-31 (revises F-SSH-9): the identification is the first line LONGER than
+        # four bytes that begins with "SSH-" -- OpenSSH's selection test in
+        # kex_exchange_identification (sshbuf_len(peer_version) > 4 && memcmp(...,
+        # "SSH-", 4) == 0). The RFC is silent on selecting the line, so the reference
+        # client is the vendor source. A bare "SSH-\r\n" (exactly four bytes, no "2.0"
+        # protoversion) is skipped like a pre-banner line, so the following well-formed
+        # identification is selected and its KEXINIT read -> a forbidden kex gaps.
+        kex_forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                 hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                 mac=["hmac-sha2-256-etm@openssh.com"])
+        with Fixture(b"SSH-\r\nSSH-2.0-OpenSSH_9.6\r\n", kex_forb, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertEqual(rec["banner"], "SSH-2.0-OpenSSH_9.6")
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_bare_SSH_prefix_then_clean_offer_is_pass(self):
+        # The same skip lets a CLEAN server behind a bare "SSH-" prefix read pass
+        # (unknown -> pass vs. before the fix). Deliberately correct, not a false clean:
+        # the server offers only clean algorithms and OpenSSH would negotiate with it.
+        kex_clean = build_kexinit(kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+                                  enc=["chacha20-poly1305@openssh.com"],
+                                  mac=["hmac-sha2-256-etm@openssh.com"])
+        pol = {"forbidden": {"kex": ["diffie-hellman-group1-sha1"]},
+               "required": {"kex": ["curve25519-sha256"],
+                            "mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        with Fixture(b"SSH-\r\nSSH-2.0-OpenSSH_9.6\r\n", kex_clean, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, pol))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["overall"], "pass")
+
+    def test_longer_malformed_SSH_line_is_selected_as_identification(self):
+        # F-SSH-31 twins: "SSH-2.0" / "SSH-2.0-" / "SSH-X" are MORE than four bytes, so
+        # they pass the selection test and ARE the identification (content advisory --
+        # the version is not parsed here, matching that observe.py adopts OpenSSH's
+        # selection, not its sscanf). Directly followed by a KEXINIT, the forbidden kex
+        # gaps under the advisory banner.
+        kex_forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                 hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                 mac=["hmac-sha2-256-etm@openssh.com"])
+        for prefix in (b"SSH-2.0\r\n", b"SSH-2.0-\r\n", b"SSH-X\r\n"):
+            with Fixture(prefix, kex_forb, proactive=True) as fx:
+                rec = observe.observe(_req(fx.port, POLICY))
+            self.assertTrue(rec["kexinit_read"],
+                            "%r (>4 bytes) must be selected as identification" % prefix)
+            self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_grok_twin_with_second_identification_line_is_unknown(self):
+        # F-SSH-31 twins as Grok posted them: a >4-byte "SSH-2.0"/"SSH-2.0-" is selected
+        # (not skipped), then a SECOND "SSH-2.0-OpenSSH_9.6\r\n" line's bytes sit before
+        # the KEXINIT and misframe it -> kexinit_read false -> unknown. Fail-safe (the
+        # declined F-SSH-26 stray-post-identification-bytes cell); no false clean. These
+        # twins are NOT the same axis as the bare "SSH-" case.
+        kex_forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                                 hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                                 mac=["hmac-sha2-256-etm@openssh.com"])
+        for prefix in (b"SSH-2.0\r\nSSH-2.0-OpenSSH_9.6\r\n",
+                       b"SSH-2.0-\r\nSSH-2.0-OpenSSH_9.6\r\n"):
+            with Fixture(prefix, kex_forb, proactive=True) as fx:
+                rec = observe.observe(_req(fx.port, POLICY))
+            self.assertFalse(rec["kexinit_read"])
+            self.assertEqual(check.evaluate(rec)["overall"], "unknown")
 
     def test_identification_comment_field_is_dropped_from_software(self):
         # RFC 4253 4.2: "SSH-protoversion-softwareversion SP comments". The comment

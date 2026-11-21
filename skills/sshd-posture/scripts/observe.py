@@ -85,13 +85,26 @@ def _validate(req):
 
 
 def _read_identification(sock, deadline):
-    """Read identification lines until an 'SSH-' line (RFC 4253 section 4.2),
-    discarding any pre-banner lines. Bounded by the observation deadline and a
-    per-line length cap (memory), not a line count or total size -- consistent
-    with the KEXINIT read. Returns (banner_bytes, leftover_bytes), where
-    ``leftover`` is whatever followed the identification line's newline (often
-    the start of the binary KEXINIT), or (None, b"") on the deadline, EOF, or an
-    over-long line.
+    """Read identification lines until the server's identification line (RFC 4253
+    section 4.2), discarding any pre-banner lines. A line is the identification
+    only when it is MORE than four bytes long and begins with ``SSH-`` -- the exact
+    test OpenSSH's reference client applies in ``kex_exchange_identification``
+    (``sshbuf_len(peer_version) > 4 && memcmp(..., "SSH-", 4) == 0``). The RFC does
+    not say how a receiver selects the identification among pre-banner lines, so the
+    reference client is the vendor source: a bare ``SSH-`` (exactly four bytes, no
+    ``protoversion``, which RFC 4253 section 4.2 requires to be ``2.0``) is NOT the
+    identification -- it is skipped like any other pre-banner line, so a following
+    well-formed identification is found. A longer malformed line (``SSH-2.0``,
+    ``SSH-2.0-``) IS taken as the identification -- it passes the same selection
+    test, and once selected the line is never revisited (OpenSSH likewise does not
+    return to an earlier line). Its content is advisory only here: this skill does
+    not parse or validate the ``protoversion``/``softwareversion``, so the KEXINIT
+    that follows such a banner is still read. Bounded by the
+    observation deadline and a per-line length cap (memory), not a line count or
+    total size -- consistent with the KEXINIT read. Returns (banner_bytes,
+    leftover_bytes), where ``leftover`` is whatever followed the identification
+    line's newline (often the start of the binary KEXINIT), or (None, b"") on the
+    deadline, EOF, or an over-long line.
     """
     buf = bytearray()
     while True:
@@ -99,9 +112,9 @@ def _read_identification(sock, deadline):
             idx = buf.index(b"\n")
             raw = bytes(buf[:idx]).rstrip(b"\r")
             del buf[:idx + 1]
-            if raw.startswith(b"SSH-"):
+            if len(raw) > 4 and raw.startswith(b"SSH-"):
                 return raw, bytes(buf)
-            # a pre-banner line: discard it and keep scanning
+            # a pre-banner line (including a bare "SSH-"): discard and keep scanning
         if len(buf) > MAX_IDENT_LINE:
             return None, b""  # a single line longer than the per-line cap
         remaining = deadline - time.monotonic()

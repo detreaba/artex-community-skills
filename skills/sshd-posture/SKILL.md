@@ -38,7 +38,15 @@ Reads one JSON request on stdin and prints an observation record:
   §4.2 does not fix an order, and §5.2 lets a client send additional data right
   after its identification string before receiving the server's — our KEXINIT is
   that additional data), then reads the server's identification line(s), discarding any
-  pre-banner lines until the `SSH-` line — bounded by the observation window and a
+  pre-banner lines until the identification line — the first line **longer than
+  four bytes** that begins with `SSH-`, OpenSSH's own selection test in
+  `kex_exchange_identification` (`sshbuf_len(peer_version) > 4 && memcmp(…, "SSH-",
+  4) == 0`). This **revises F-SSH-9** (previously "the line that begins with
+  `SSH-`"): a bare `SSH-` (exactly four bytes — the one `SSH-` prefix that cannot
+  carry the `2.0` protoversion RFC 4253 §4.2 requires) is skipped like any other
+  pre-banner line, so a following well-formed identification is found; a longer
+  malformed line (`SSH-2.0`, `SSH-2.0-`) is still selected, its content advisory
+  only — bounded by the observation window and a
   per-line length cap, not a line count or total size. Pipelining both first
   elicits the server's offer even from a peer that withholds its identification
   until it has read the client's identification **and** KEXINIT; reading first
