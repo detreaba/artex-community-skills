@@ -115,6 +115,14 @@ case-sensitive"), including the `name@domain` form; the domain part is not folde
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.
 
+The observation's `error` field gates usability: a **truthy** `error` (as
+`observe.py` writes on failure, e.g. `invalid_input`) → the whole record is unusable
+→ `unknown`. A **present-but-falsy** `error` (`null`/`false`/`""`) is not a value
+`observe.py` emits (success omits the key); it is treated as a non-standard record
+signal that downgrades an otherwise-clean verdict to `unknown` (fail-closed) but
+never masks a captured `gap`. (`observe.py` never writes a truthy `error` together
+with captured name-lists — its failure path returns before any are read.)
+
 **The identification string is advisory, never a verdict.** Both the software
 name and the SSH protocol token (`SSH-2.0` / `SSH-1.99` / …) are self-reported and
 can be forged, so the verdict rests only on the *offered* algorithms; the banner,

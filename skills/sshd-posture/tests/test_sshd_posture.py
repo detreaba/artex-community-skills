@@ -646,6 +646,29 @@ class VerdictRules(unittest.TestCase):
         self.assertEqual(out["per_category"]["cipher"], "unknown")
         self.assertEqual(out["overall"], "unknown")
 
+    def test_falsy_error_does_not_mask_a_gap_but_downgrades_clean(self):
+        # F-SSH-25: a present-but-falsy "error" (null/false/"") must not mask a
+        # captured forbidden algorithm -> the gap wins. But it is a non-standard
+        # record signal (observe.py omits the key on success), so an otherwise-clean
+        # verdict downgrades to unknown (fail-closed), consistent with the
+        # present-but-unusable policy rule.
+        for falsy in (None, False, ""):
+            gap_rec = self._rec(encryption_c2s=["3des-cbc"],
+                                encryption_s2c=["chacha20-poly1305@openssh.com"])
+            gap_rec["error"] = falsy
+            self.assertEqual(check.evaluate(gap_rec)["overall"], "gap",
+                             "error=%r must not mask the forbidden cipher" % (falsy,))
+            clean_rec = self._rec()  # every category clean under POLICY
+            clean_rec["error"] = falsy
+            self.assertEqual(check.evaluate(clean_rec)["overall"], "unknown",
+                             "error=%r downgrades a clean verdict to unknown" % (falsy,))
+
+    def test_truthy_error_value_is_unusable_unknown(self):
+        # Contrast: a real (truthy) error means the observation is unusable -> unknown.
+        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+        rec["error"] = "timeout"
+        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
         self.assertEqual(out["per_category"]["kex"], "gap")

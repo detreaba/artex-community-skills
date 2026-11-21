@@ -134,11 +134,17 @@ def evaluate(record):
         return {"overall": "unknown",
                 "reason": "observation record is not a JSON object",
                 "per_category": {}}
-    if "error" in record:
+    if record.get("error"):
+        # A truthy error means the observation is unusable.
         return {"overall": "unknown",
                 "reason": "observation not usable: %s (%s)"
                           % (record.get("error"), record.get("reason", "")),
                 "per_category": {}}
+    # A present-but-falsy error ("error": null / false / "") is not a value observe.py
+    # emits (success omits the key); treat it as a non-standard record signal that
+    # downgrades an otherwise-clean verdict to unknown (fail-closed). It NEVER masks a
+    # captured gap -- a forbidden algorithm still gaps.
+    error_present_falsy = "error" in record
     policy = record.get("policy")
     if not isinstance(policy, dict):
         policy = {}
@@ -177,7 +183,8 @@ def evaluate(record):
     verdicts = list(per_category.values())
     if any(v == "gap" for v in verdicts):
         overall = "gap"
-    elif policy_problems or not verdicts or any(v != "pass" for v in verdicts):
+    elif error_present_falsy or policy_problems or not verdicts \
+            or any(v != "pass" for v in verdicts):
         overall = "unknown"
     else:
         overall = "pass"
@@ -196,6 +203,10 @@ def evaluate(record):
                      "SSH-1 handshake, which this check does not perform)." % proto)
     for problem in policy_problems:
         notes.append("%s (unusable, fails closed to unknown)" % problem)
+    if error_present_falsy:
+        notes.append("record carries a present-but-falsy 'error' field (not a value "
+                     "observe.py emits); a clean verdict is downgraded to unknown, "
+                     "but a captured gap still stands")
 
     return {
         "overall": overall,
