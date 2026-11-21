@@ -113,7 +113,12 @@ directions independently, so:
   fully-qualified name) (RFC 4251 §6) — keeps its valid names (a forbidden name
   among them still decides `gap`) and is otherwise malformed → `unknown`, so a
   token like `"3des-cbc "` or `"3des-cbc@"` cannot slip a `forbidden` match by
-  reading as a distinct algorithm. `observe.py` records tokens faithfully (no
+  reading as a distinct algorithm. An array element that is an **unsplit**
+  comma-joined wire name-list (e.g. `["3des-cbc,aes256-ctr"]`) is one such non-name
+  token — it is never re-split here (`observe.py` splits the wire body once, at
+  capture), so it neither matches a `forbidden` name (→ `unknown`) nor satisfies a
+  `required` one (a direction of only non-name tokens is a provable miss → `gap`).
+  `observe.py` records tokens faithfully (no
   strip, no empty-drop), so the comma-only body `","` reaches `check.py` as empty
   tokens and reads `unknown`, distinct from a length-0 empty offer; a policy category or section that is present but
   **null** or not a list is unusable → `unknown`; one that is simply absent, or an

@@ -98,11 +98,14 @@ def _category_verdict(record, category, forbidden, required,
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
-            # Only a JSON array is a captured name-list. A present non-array value
-            # (a bare string "3des-cbc", an on-the-wire comma string, a number) is
-            # not tokenized -- the scalar's separator and shape are the producer's,
-            # not observe.py's, so it is not a trustworthy offer. A definite gap from
-            # an array direction still wins below; this only downgrades a non-gap.
+            # Only a JSON array is a captured name-list; a non-array value (a bare or
+            # comma string, a number, null) is not a captured offer, so this direction
+            # is not captured. A definite gap from an array direction still wins below;
+            # this only downgrades an otherwise-clean verdict. The array's elements are
+            # each validated as a single name below: a comma-joined element (an unsplit
+            # wire name-list) contains a comma, which RFC 4251 Sec. 6 forbids in a name,
+            # so it is a non-standard token like any other -- never split here (observe.py
+            # splits the wire body once, at capture).
             incomplete = True
             continue
         valid = [v for v in vals if _is_name(v)]

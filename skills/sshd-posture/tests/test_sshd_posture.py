@@ -319,11 +319,10 @@ class VerdictRules(unittest.TestCase):
     def test_forbidden_name_in_non_array_direction_is_unknown(self):
         # F-SSH-29: only a JSON array is read as a name-list. A forbidden name sitting
         # in a NON-array direction -- a bare string "3des-cbc", or an on-the-wire comma
-        # string "3des-cbc,aes256-ctr" -- is not tokenized, so the category reads
-        # unknown (fail-closed), not gap: the scalar's shape/separator is the producer's,
-        # not a captured offer. The anomaly is in the container being judged (contrast
-        # F-SSH-25/27, where the forbidden name was in an array and the anomaly sat in a
-        # sibling field, so a gap won). An ARRAY carrying the same name gaps.
+        # string "3des-cbc,aes256-ctr" -- is not a captured offer, so the category reads
+        # unknown (fail-closed), not gap. The anomaly is in the container being judged
+        # (contrast F-SSH-25/27, where the forbidden name was in an array and the anomaly
+        # sat in a sibling field, so a gap won). An ARRAY carrying the same name gaps.
         for bad in ("3des-cbc", "3des-cbc,aes256-ctr"):
             rec = self._rec(encryption_c2s=bad,
                             encryption_s2c=["chacha20-poly1305@openssh.com"])
@@ -334,6 +333,39 @@ class VerdictRules(unittest.TestCase):
         arr = self._rec(encryption_c2s=["3des-cbc"],
                         encryption_s2c=["chacha20-poly1305@openssh.com"])
         self.assertEqual(check.evaluate(arr)["per_category"]["cipher"], "gap")
+
+    def test_comma_joined_array_element_is_a_non_name_token(self):
+        # F-SSH-30: a JSON array whose element is the unsplit wire name-list
+        # "3des-cbc,aes256-ctr" satisfies the array container rule (F-SSH-29), but the
+        # element contains a comma, which RFC 4251 Sec. 6 forbids in a name, so _is_name
+        # rejects it -- a non-name token exactly like the padded/over-long/@-malformed
+        # tokens (F-SSH-18). check.py matches literally and never re-splits (observe.py
+        # splits the wire body once, at capture). A non-name token:
+        #  - never EQUALS a forbidden name -> forbidden-only policy cannot gap on it;
+        #    nonstandard downgrades the otherwise-clean category to unknown;
+        #  - never SATISFIES a required name -> a direction of only non-name tokens is a
+        #    provable miss of the required set -> gap.
+        forb = {"forbidden": {"cipher": ["3des-cbc"]}}
+        req = {"required": {"cipher": ["chacha20-poly1305@openssh.com"]}}
+        # forbidden side: unsplit element -> unknown; properly split -> gap
+        r1 = self._rec(encryption_c2s=["3des-cbc,aes256-ctr"],
+                       encryption_s2c=["chacha20-poly1305@openssh.com"])
+        r1["policy"] = forb
+        self.assertEqual(check.evaluate(r1)["per_category"]["cipher"], "unknown")
+        r2 = self._rec(encryption_c2s=["3des-cbc", "aes256-ctr"],
+                       encryption_s2c=["chacha20-poly1305@openssh.com"])
+        r2["policy"] = forb
+        self.assertEqual(check.evaluate(r2)["per_category"]["cipher"], "gap")
+        # both directions unsplit, forbidden side -> still unknown (no literal match)
+        r3 = self._rec(encryption_c2s=["3des-cbc,aes256-ctr"],
+                       encryption_s2c=["3des-cbc,aes256-ctr"])
+        r3["policy"] = forb
+        self.assertEqual(check.evaluate(r3)["per_category"]["cipher"], "unknown")
+        # required side: an unsplit element never satisfies the required name -> gap
+        r4 = self._rec(encryption_c2s=["chacha20-poly1305@openssh.com,aes256-ctr"],
+                       encryption_s2c=["chacha20-poly1305@openssh.com"])
+        r4["policy"] = req
+        self.assertEqual(check.evaluate(r4)["per_category"]["cipher"], "gap")
 
     def test_empty_direction_list_missing_required_is_gap(self):
         # An empty but present direction offers none of the required set -> gap.
