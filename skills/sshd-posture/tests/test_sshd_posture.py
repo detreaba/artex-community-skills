@@ -1224,7 +1224,7 @@ class LoopbackParser(unittest.TestCase):
 
     def test_long_pre_banner_line_under_per_line_cap(self):
         # A 300 B pre-banner line (over RFC 4253 4.2's SHOULD-NOT 255, well under
-        # the 4096 B per-line memory cap) is discarded and the identification read.
+        # the 8192 B per-line cap) is discarded and the identification read.
         banner = (b"y" * 298 + b"\r\n") + b"SSH-2.0-OpenSSH_9.6\r\n"
         kexinit = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
                                 hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
@@ -1234,6 +1234,39 @@ class LoopbackParser(unittest.TestCase):
         self.assertTrue(rec["kexinit_read"])
         self.assertEqual(rec["software"], "OpenSSH_9.6")
         self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
+    def test_pre_banner_line_up_to_openssh_cap_then_identification(self):
+        # F-SSH-33: the per-line cap matches OpenSSH SSH_MAX_BANNER_LEN (8192, ssh.h
+        # rev 1.91). A pre-banner line that OpenSSH would accept (content <= 8192) is
+        # skipped and the identification behind it is read -> a forbidden kex gaps.
+        # Previously observe.py capped at 4096 and read these as unknown. 8192 is the
+        # boundary (accepted); 8193 exceeds the cap and reads unknown, as OpenSSH sends
+        # an over-long line to `invalid`. The per-COMPLETED-line check makes the
+        # boundary independent of how recv() segments the stream.
+        forb = build_kexinit(kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+                             hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+                             mac=["hmac-sha2-256-etm@openssh.com"])
+        for content_len, expect_read in ((5000, True), (8192, True), (8193, False),
+                                         (9000, False)):
+            banner = b"y" * content_len + b"\r\n" + b"SSH-2.0-OpenSSH_9.6\r\n"
+            with Fixture(banner, forb, proactive=True) as fx:
+                rec = observe.observe(_req(fx.port, POLICY))
+            self.assertEqual(rec["kexinit_read"], expect_read,
+                             "%d-byte pre-banner line: kexinit_read" % content_len)
+            self.assertEqual(check.evaluate(rec)["per_category"]["kex"],
+                             "gap" if expect_read else "unknown")
+        # A clean server behind a 5000-byte pre-banner reads pass (unknown -> pass),
+        # deliberately -- the real offer is clean and OpenSSH would negotiate with it.
+        clean = build_kexinit(kex=["curve25519-sha256"], hostkey=["ssh-ed25519"],
+                              enc=["chacha20-poly1305@openssh.com"],
+                              mac=["hmac-sha2-256-etm@openssh.com"])
+        pol = {"forbidden": {"kex": ["diffie-hellman-group1-sha1"]},
+               "required": {"kex": ["curve25519-sha256"],
+                            "mac": ["hmac-sha2-256-etm@openssh.com"]}}
+        banner = b"y" * 5000 + b"\r\n" + b"SSH-2.0-OpenSSH_9.6\r\n"
+        with Fixture(banner, clean, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, pol))
+        self.assertEqual(check.evaluate(rec)["overall"], "pass")
 
     def test_many_pre_banner_lines_then_identification(self):
         # F-SSH-7: 80 valid CRLF pre-banner lines (~9.9 KB, over the old 64-line /

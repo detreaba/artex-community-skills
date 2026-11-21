@@ -33,7 +33,11 @@ import sys
 import time
 
 TIMEOUT = 5
-MAX_IDENT_LINE = 4096  # per-line cap on pre-banner/identification lines (memory bound)
+MAX_IDENT_LINE = 8192  # per-line cap on pre-banner/identification lines; matches
+                       # OpenSSH SSH_MAX_BANNER_LEN (ssh.h rev 1.91), so observe.py
+                       # reads the identification behind any pre-banner line OpenSSH
+                       # would accept. A line whose content exceeds it reads unknown,
+                       # as OpenSSH sends it to `invalid` (F-SSH-33).
 MAX_PACKET = 35000  # RFC 4253 section 6.1 maximum uncompressed packet size
 SSH_MSG_KEXINIT = 20
 CLIENT_IDENT = b"SSH-2.0-artex-sshd-posture-observer\r\n"
@@ -112,11 +116,19 @@ def _read_identification(sock, deadline):
             idx = buf.index(b"\n")
             raw = bytes(buf[:idx]).rstrip(b"\r")
             del buf[:idx + 1]
+            if len(raw) > MAX_IDENT_LINE:
+                # a completed line whose content exceeds the cap: OpenSSH's reader
+                # sends it to `invalid`, so the exchange reads unknown. Checked per
+                # completed line (not just the buffer) so the verdict never depends on
+                # how recv() happened to segment the stream.
+                return None, b""
             if len(raw) > 4 and raw.startswith(b"SSH-"):
                 return raw, bytes(buf)
             # a pre-banner line (including a bare "SSH-"): discard and keep scanning
-        if len(buf) > MAX_IDENT_LINE:
-            return None, b""  # a single line longer than the per-line cap
+        if len(buf) > MAX_IDENT_LINE + 1:
+            # an unterminated line past the cap (+1 tolerates one pending CR before its
+            # LF arrives). Bounds memory even for a stream that never sends an LF.
+            return None, b""
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None, b""

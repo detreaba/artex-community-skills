@@ -46,8 +46,13 @@ Reads one JSON request on stdin and prints an observation record:
   carry the `2.0` protoversion RFC 4253 §4.2 requires) is skipped like any other
   pre-banner line, so a following well-formed identification is found; a longer
   malformed line (`SSH-2.0`, `SSH-2.0-`) is still selected, its content advisory
-  only — bounded by the observation window and a
-  per-line length cap, not a line count or total size. Pipelining both first
+  only — bounded by the observation window and a per-line length cap of **8192
+  bytes** (OpenSSH's `SSH_MAX_BANNER_LEN`, `ssh.h` rev 1.91), not a line count or
+  total size: the observer reads the identification behind any pre-banner line
+  OpenSSH would accept, and a line whose content exceeds 8192 bytes reads `unknown`
+  as OpenSSH sends it to `invalid` (F-SSH-33). The observer keeps no line-count cap
+  (F-SSH-7), so it will read past OpenSSH's 1024-line limit — it is time-bounded, not
+  count-bounded. Pipelining both first
   elicits the server's offer even from a peer that withholds its identification
   until it has read the client's identification **and** KEXINIT; reading first
   would deadlock there. It never sends `SSH_MSG_NEWKEYS`, completes key exchange,
