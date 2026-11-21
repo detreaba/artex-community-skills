@@ -316,6 +316,25 @@ class VerdictRules(unittest.TestCase):
                                        encryption_s2c="not-a-list"))
         self.assertEqual(out["per_category"]["cipher"], "gap")
 
+    def test_forbidden_name_in_non_array_direction_is_unknown(self):
+        # F-SSH-29: only a JSON array is read as a name-list. A forbidden name sitting
+        # in a NON-array direction -- a bare string "3des-cbc", or an on-the-wire comma
+        # string "3des-cbc,aes256-ctr" -- is not tokenized, so the category reads
+        # unknown (fail-closed), not gap: the scalar's shape/separator is the producer's,
+        # not a captured offer. The anomaly is in the container being judged (contrast
+        # F-SSH-25/27, where the forbidden name was in an array and the anomaly sat in a
+        # sibling field, so a gap won). An ARRAY carrying the same name gaps.
+        for bad in ("3des-cbc", "3des-cbc,aes256-ctr"):
+            rec = self._rec(encryption_c2s=bad,
+                            encryption_s2c=["chacha20-poly1305@openssh.com"])
+            self.assertEqual(check.evaluate(rec)["per_category"]["cipher"], "unknown",
+                             "encryption_c2s=%r must read unknown, not gap" % (bad,))
+        both = self._rec(encryption_c2s="3des-cbc", encryption_s2c="3des-cbc")
+        self.assertEqual(check.evaluate(both)["per_category"]["cipher"], "unknown")
+        arr = self._rec(encryption_c2s=["3des-cbc"],
+                        encryption_s2c=["chacha20-poly1305@openssh.com"])
+        self.assertEqual(check.evaluate(arr)["per_category"]["cipher"], "gap")
+
     def test_empty_direction_list_missing_required_is_gap(self):
         # An empty but present direction offers none of the required set -> gap.
         out = check.evaluate(self._rec(encryption_c2s=["chacha20-poly1305@openssh.com"],

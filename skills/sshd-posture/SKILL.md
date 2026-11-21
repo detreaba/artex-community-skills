@@ -95,9 +95,13 @@ directions independently, so:
   offer was not confirmed captured, so every category reads `unknown` and the
   name-lists are not consulted. "Captured" throughout means a name-list read under a
   boolean-`true` flag;
-- within a read KEXINIT, a direction whose name-list is **missing** → `unknown`,
-  **unless** a captured direction already shows a forbidden algorithm or is missing
-  a required one, which still decides `gap`;
+- only a **JSON array** is read as a name-list. A direction that is not an array —
+  absent, or a present non-array value such as a bare string `"3des-cbc"` or an
+  on-the-wire comma string `"3des-cbc,aes256-ctr"` — is not a captured offer, so that
+  direction reads `unknown` and its scalar is never tokenized (the same rule holds on
+  the policy side: a non-array `forbidden`/`required` entry is unusable, not a name).
+  This stays **unless** a captured (array) direction already shows a forbidden
+  algorithm or is missing a required one, which still decides `gap`;
 - an **empty** captured name-list (length 0 on the wire) is a real empty offer,
   distinct from an omitted field: it offers nothing, so it fails a `required`
   check (`gap`) and passes a `forbidden`-only one, while an **omitted** direction

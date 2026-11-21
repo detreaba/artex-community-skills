@@ -91,12 +91,18 @@ def _category_verdict(record, category, forbidden, required,
         return "unknown"
     clean_directions = []  # directions whose elements are all strings (judge required)
     seen = set()           # well-formed names offered across captured directions
-    incomplete = False     # a direction's name-list was absent from the record
+    incomplete = False     # a direction was not a captured name-list: absent, or a
+                           # present non-array value (a bare/comma string, number, ...)
     unreadable = False     # a non-string element -> that direction cannot be read
     nonstandard = False    # a string token that is not a well-formed name
     for field in _FIELDS[category]:
         vals = record.get(field)
         if not isinstance(vals, list):
+            # Only a JSON array is a captured name-list. A present non-array value
+            # (a bare string "3des-cbc", an on-the-wire comma string, a number) is
+            # not tokenized -- the scalar's separator and shape are the producer's,
+            # not observe.py's, so it is not a trustworthy offer. A definite gap from
+            # an array direction still wins below; this only downgrades a non-gap.
             incomplete = True
             continue
         valid = [v for v in vals if _is_name(v)]
