@@ -124,13 +124,15 @@ case-sensitive"), including the `name@domain` form; the domain part is not folde
 Overall: any `gap` → `gap`; all `pass` → `pass`; otherwise `unknown` (including a
 policy with nothing to check). Malformed input fails closed to `unknown`.
 
-The observation's `error` field gates usability: a **truthy** `error` (as
-`observe.py` writes on failure, e.g. `invalid_input`) → the whole record is unusable
-→ `unknown`. A **present-but-falsy** `error` (`null`/`false`/`""`) is not a value
-`observe.py` emits (success omits the key); it is treated as a non-standard record
-signal that downgrades an otherwise-clean verdict to `unknown` (fail-closed) but
-never masks a captured `gap`. (`observe.py` never writes a truthy `error` together
-with captured name-lists — its failure path returns before any are read.)
+The observation's `error` field is a record anomaly, not a mask: a present `error`
+— truthy (as `observe.py` writes on failure, e.g. `invalid_input`) or a
+non-standard falsy (`null`/`false`/`""`) — downgrades an otherwise-clean verdict to
+`unknown` (fail-closed) but never masks a captured `gap`. A captured gap stands
+because the `kexinit_read` gate judges name-lists only when the KEXINIT was fully
+parsed, so a forbidden algorithm present under an error is a real detection.
+(`observe.py`'s failure path returns a record with no `policy` and no name-lists, so
+there is nothing to judge and it reads `unknown`; the observed `reason` is surfaced
+as a note.)
 
 **The identification string is advisory, never a verdict.** Both the software
 name and the SSH protocol token (`SSH-2.0` / `SSH-1.99` / …) are self-reported and

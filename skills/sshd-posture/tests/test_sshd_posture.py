@@ -663,11 +663,44 @@ class VerdictRules(unittest.TestCase):
             self.assertEqual(check.evaluate(clean_rec)["overall"], "unknown",
                              "error=%r downgrades a clean verdict to unknown" % (falsy,))
 
-    def test_truthy_error_value_is_unusable_unknown(self):
-        # Contrast: a real (truthy) error means the observation is unusable -> unknown.
-        rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
-        rec["error"] = "timeout"
-        self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+    def test_truthy_error_does_not_mask_a_gap_but_downgrades_clean(self):
+        # F-SSH-27: a truthy "error" ("timeout"/"invalid_input") is a record anomaly,
+        # not a mask -- a captured forbidden algorithm still gaps (the kexinit_read
+        # gate means name-lists are judged only when fully parsed, so the gap is
+        # real), while an otherwise-clean verdict downgrades to unknown. (Revises the
+        # F-SSH-25 statement that a truthy error always reads unknown.)
+        for err in ("timeout", "invalid_input"):
+            gap_rec = self._rec(encryption_c2s=["3des-cbc"],
+                                encryption_s2c=["chacha20-poly1305@openssh.com"])
+            gap_rec["error"] = err
+            self.assertEqual(check.evaluate(gap_rec)["overall"], "gap",
+                             "error=%r must not mask the forbidden cipher" % err)
+            clean_rec = self._rec()
+            clean_rec["error"] = err
+            self.assertEqual(check.evaluate(clean_rec)["overall"], "unknown",
+                             "error=%r downgrades a clean verdict to unknown" % err)
+
+    def test_fail_record_shape_is_unknown_and_surfaces_reason(self):
+        # A real observe.py _fail record: error + reason, NO policy, NO name-lists ->
+        # nothing to judge -> unknown; the reason is surfaced as a note.
+        rec = {"skill": "sshd-posture", "observation_version": 1,
+               "error": "invalid_input",
+               "reason": "target.host must be one host, not a list, range or wildcard"}
+        out = check.evaluate(rec)
+        self.assertEqual(out["overall"], "unknown")
+        self.assertTrue(any("invalid_input" in n for n in out.get("notes", [])),
+                        "the error/reason should be surfaced in notes")
+
+    def test_non_boolean_kexinit_read_is_unknown(self):
+        # The kexinit_read gate requires boolean True (F-SSH-16); a forged
+        # "kexinit_read": 1 or "true" with a captured forbidden cipher still reads
+        # unknown. This keeps the "a gap wins under an error" argument safe: name-lists
+        # are only trusted when the KEXINIT was genuinely parsed.
+        for flag in (1, "true"):
+            rec = self._rec(encryption_c2s=["3des-cbc"], encryption_s2c=["3des-cbc"])
+            rec["kexinit_read"] = flag
+            self.assertEqual(check.evaluate(rec)["overall"], "unknown",
+                             "kexinit_read=%r must gate to unknown" % (flag,))
 
     def test_required_kex_absent_is_gap(self):
         out = check.evaluate(self._rec(kex_algorithms=["ecdh-sha2-nistp256"]))
