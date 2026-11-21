@@ -816,6 +816,28 @@ class LoopbackParser(unittest.TestCase):
         self.assertEqual(out["per_category"]["kex"], "gap")
         self.assertEqual(out["overall"], "gap")
 
+    def test_extra_blank_line_after_identification_is_unknown(self):
+        # F-SSH-26: RFC 4253 Sec. 4.2 -- the identification is terminated by a SINGLE
+        # CR LF, and "All packets following the identification string SHALL use the
+        # binary packet protocol". An extra CR LF (or LF) after the SSH- line is not
+        # a binary packet; it frames as an out-of-bounds packet_length, so the
+        # observation reads unknown (fail-closed, not a false clean). Declined:
+        # resynchronising past stray post-terminator bytes is a separate owner call.
+        packet = build_kexinit(
+            kex=["curve25519-sha256", "diffie-hellman-group1-sha1"],
+            hostkey=["ssh-ed25519"], enc=["chacha20-poly1305@openssh.com"],
+            mac=["hmac-sha2-256-etm@openssh.com"])
+        for banner in (b"SSH-2.0-ExtraCRLF_1.0\r\n\r\n", b"SSH-2.0-ExtraLF_1.0\r\n\n"):
+            with Fixture(banner, packet, proactive=True) as fx:
+                rec = observe.observe(_req(fx.port, POLICY))
+            self.assertFalse(rec["kexinit_read"], "banner %r should not parse" % banner)
+            self.assertEqual(check.evaluate(rec)["overall"], "unknown")
+        # Contrast: a single CR LF terminator captures the forbidden kex -> gap.
+        with Fixture(b"SSH-2.0-OK_1.0\r\n", packet, proactive=True) as fx:
+            rec = observe.observe(_req(fx.port, POLICY))
+        self.assertTrue(rec["kexinit_read"])
+        self.assertEqual(check.evaluate(rec)["per_category"]["kex"], "gap")
+
     def test_waits_for_client_kexinit_before_banner(self):
         # F-SSH-24: a server that withholds its identification until it has read the
         # client's SSH- line AND a full KEXINIT. observe.py pipelines its ident and

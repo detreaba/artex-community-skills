@@ -50,6 +50,15 @@ Reads one JSON request on stdin and prints an observation record:
   `SSH_MSG_KEXINIT` (each `packet_length` capped at the RFC maximum of 35000 B),
   and parses the ten name-lists (kex, host-key, enc c2s/s2c, mac c2s/s2c,
   compression, languages). A server that floods past the window reads `unknown`.
+- The binary packet stream begins at the single CR LF that terminates the
+  identification string (RFC 4253 §4.2: the terminator is a single CR LF, and "All
+  packets following the identification string SHALL use the binary packet
+  protocol"). The observer frames packets from that point and does not
+  resynchronise past stray bytes: an extra blank line *after* the `SSH-` line is
+  not a binary packet, so it frames as an out-of-bounds `packet_length` and the
+  observation reads `unknown` (a non-conformant server, fail-closed — not a false
+  clean). This is distinct from a blank/other line *before* the `SSH-` line, which
+  §4.2 permits and the observer skips.
 - It then closes. It **never** authenticates, completes key exchange, opens a
   channel, or sends application data, and carries no exploit payload.
 
